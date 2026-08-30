@@ -1,0 +1,41 @@
+name: Deploy game
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      JIUCAI_D1_DATABASE_ID: ${{ vars.JIUCAI_D1_DATABASE_ID }}
+      JIUCAI_D1_DATABASE_NAME: ${{ vars.JIUCAI_D1_DATABASE_NAME }}
+      JIUCAI_WORKER_NAME: ${{ vars.JIUCAI_WORKER_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@v1
+        with:
+          version: 11.19.0
+          runtime: node@22.19.0
+          cache: true
+          install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm cloudflare:build
+      - name: Deploy Worker
+        run: pnpm exec wrangler deploy --config dist/server/wrangler.deploy.json

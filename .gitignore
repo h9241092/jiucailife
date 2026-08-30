@@ -1,0 +1,56 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.vinext/
+/out/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local environment
+.env*
+!.env.example
+
+# deployment and generated files
+.vercel
+next-env.d.ts
+/dist/
+/.wrangler/
+/.cloudflare-migration/
+/.wrangler-local/
+/outputs/
+/work/
+/analysis/
+/exports/
+/reports/
+/.openai/
+/scripts/export-logo.py
+/專案進度紀錄.md
+*.tsbuildinfo
+/.pnpm-store/
+/.site-git/
+/wrangler.deploy.json
+
+# local deployment packages and temporary staging
+/.artifact-work*/
+/.site-deploy-*.tar.gz
+/*.zip
