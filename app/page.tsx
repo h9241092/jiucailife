@@ -250,7 +250,7 @@ const forewordParagraphs = [
 ];
 const animatedCharacters = (text: string, offset = 0) => Array.from(text).map((character, index) => character === "\n"
   ? <br key={`${offset}-${index}`} />
-  : <span className="foreword-character" style={{ animationDelay: `${(offset + index) * 34}ms` }} aria-hidden="true" key={`${offset}-${index}`}>{character === " " ? "\u00a0" : character}</span>);
+  : <span className="foreword-character" style={{ animationDelay: `${(offset + index) * 30}ms` }} aria-hidden="true" key={`${offset}-${index}`}>{character === " " ? "\u00a0" : character}</span>);
 const money = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
 const formatMoney = (value: number) => `${value < 0 ? "−" : ""}NT$ ${money.format(Math.abs(Math.round(value)))}`;
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
