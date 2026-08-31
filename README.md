@@ -17,7 +17,7 @@
 
   ## 遊戲方式
 
-- 可查WIKI(https://github.com/h9241092/jiucailife/blob/main/WIKI.md)
+- 可查【WIKI】(https://github.com/h9241092/jiucailife/blob/main/WIKI.md)
 
 ## 隱私
 
