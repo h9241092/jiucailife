@@ -4,7 +4,9 @@
 
 這是一款以台股、美股、ETF 與加密貨幣為舞台的純文字投資人生模擬器。靈感來自 yakyulife（棒球人生模擬器）
 
-👉 **[點我直接遊玩](https://jiucai-life-simulator.mmrichdog.workers.dev/)**
+
+## 立即遊玩
+👉 https://jiucai-life-simulator.mmrichdog.workers.dev/
 
 ## 遊戲特色
 
