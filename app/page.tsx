@@ -239,7 +239,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.1";
+const GAME_VERSION = "v1.0.2";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -256,6 +256,7 @@ const formatMoney = (value: number) => `${value < 0 ? "−" : ""}NT$ ${money.for
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
 const isDailyCompoundedAsset = (category: string) => ["台股", "ETF", "美股"].includes(category);
 const hasTaiwanDailyLimit = (category: string) => ["台股", "ETF"].includes(category);
+const hasUsDailyLimit = (category: string) => category === "美股";
 const applyAssetReturnLimits = (category: string, returnRate: number) => category === "加密貨幣"
   ? clamp(returnRate, -.6, .66)
   : returnRate;
@@ -280,10 +281,12 @@ function createDailyCompoundedMove(category: string, intendedDeclined: boolean |
     for (let day = 0; day < tradingDays; day += 1) {
       const noise = randomNormal(random) * volatility;
       const rawDailyRate = (drift + noise) * multiplier;
-      // 台股與 ETF 採 ±10% 漲跌幅限制；美股不套用此限制，但單日跌幅仍不能低於 -100%。
+      // 台股與 ETF 採 ±10% 漲跌幅限制；美股採 ±30% 漲跌幅限制。
       const dailyRate = hasTaiwanDailyLimit(category)
         ? clamp(rawDailyRate, -.1, .1)
-        : Math.max(-.999, rawDailyRate);
+        : hasUsDailyLimit(category)
+          ? clamp(rawDailyRate, -.3, .3)
+          : Math.max(-.999, rawDailyRate);
       factor *= 1 + dailyRate;
       minDailyRate = Math.min(minDailyRate, dailyRate);
       maxDailyRate = Math.max(maxDailyRate, dailyRate);
@@ -299,7 +302,7 @@ function dailyMoveDetail(category: string, movement: DailyCompoundedMove) {
   const dailyRange = `單日實際區間 ${(movement.minDailyRate * 100).toFixed(1)}%～${(movement.maxDailyRate * 100).toFixed(1)}%`;
   const limit = hasTaiwanDailyLimit(category)
     ? "每日漲跌幅硬性限制為 −10%～+10%"
-    : "美股不套用 ±10% 漲跌幅限制";
+    : "美股每日漲跌幅硬性限制為 −30%～+30%";
   return `${movement.tradingDays} 個營業日逐日複利，${dailyRange}；${limit}`;
 }
 const QUARTER_SURPRISE_CHANCE = .25;
@@ -1194,7 +1197,7 @@ const illnessEvents: IllnessEvent[] = [
   { id: "gallstone", severity: "severe", title: "膽結石發作，手術日期比財報更確定。", body: "醫師談恢復期，你想到的是收入中斷；家人談健康，你還在心算醫療費。", quote: "有些石頭不能抱著等解套。", costFactor: 1.1 },
 ];
 
-const illnessChance = (health: number) => health >= 80 ? .02 : health >= 60 ? .04 : health >= 40 ? .08 : health >= 20 ? .15 : .25;
+const illnessChance = (health: number) => health >= 80 ? .02 : health >= 60 ? .04 : health >= 40 ? .1 : health >= 20 ? .15 : .25;
 const illnessSeverityLabel = (severity: IllnessSeverity) => severity === "mild" ? "輕症" : severity === "moderate" ? "中症" : "重症";
 const illnessBaseCost = (game: Pick<Game, "income">, event: IllnessEvent) => {
   const base = event.severity === "mild" ? Math.max(3000, game.income * .012) : event.severity === "moderate" ? Math.max(15000, game.income * .04) : Math.max(60000, game.income * .14);
@@ -1359,7 +1362,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
     else if (currentQuote.bullQuarters > 0) downChance = Math.min(.35, downChance);
 
     const isSurpriseTarget = Boolean(surprise && surprise.targetCategory === asset.category && surprise.targetName === asset.name);
-    const truthful = isSurpriseTarget ? random() < .8 : false;
+    const truthful = isSurpriseTarget ? random() < .75 : false;
     const intendedDeclined = isSurpriseTarget
       ? surprise!.direction === "bearish" ? truthful : !truthful
       : random() < downChance;
@@ -1458,7 +1461,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
         maxDailyRate: movement.dailyMovement?.maxDailyRate,
       };
     } else {
-      const truthful = random() < .8;
+      const truthful = random() < .75;
       surpriseImpact = {
         truthful,
         declined: surprise.direction === "bearish" ? truthful : !truthful,
@@ -2400,7 +2403,7 @@ export default function Home() {
       eyebrow: `${periodLabel(game)} · 三個月行情結算`,
       title: quarterMarketMove > 0 ? "這一季，市場替帳戶加了點顏色。" : quarterMarketMove < 0 ? "這一季，市場收走了一些耐心。" : "這一季，帳戶幾乎原地踏步。",
       body: game.assets.length ? "三個月營業日波動已逐月複利計入每一筆持倉。" : "你本季維持空手，市場照常波動，但沒有產生持倉損益。",
-      detail: "每季包含三個月行情；台股與 ETF 每個營業日限制在 −10%～+10%，美股不套用此限制，加密貨幣沿用單月漲跌上限。",
+      detail: "每季包含三個月行情；台股與 ETF 每個營業日限制在 −10%～+10%，美股每個營業日限制在 −30%～+30%，加密貨幣沿用單月漲跌上限。",
       deltas: [`本季持倉變動 ${quarterMarketMove >= 0 ? "+" : "−"}${formatMoney(Math.abs(quarterMarketMove)).replace("NT$ ", "")}`, `期末投資資產 ${formatMoney(thirdMonthMove.assets.reduce((sum, asset) => sum + asset.value, 0)).replace("NT$ ", "")}`],
     });
   }

@@ -254,7 +254,7 @@ function marketMonth(game, random, surprise = null) {
     let intendedDown = random() < downChance;
     let multiplier = signalMoveMultiplier;
     if (surprise?.key === asset.key) {
-      const truthful = random() < .8;
+      const truthful = random() < .75;
       intendedDown = surprise.direction === "bearish" ? truthful : !truthful;
       multiplier = Math.min(3, multiplier * (1.2 + random() * .5));
     }
@@ -269,7 +269,7 @@ function marketMonth(game, random, surprise = null) {
       let factor = 1;
       for (let day = 0; day < tradingDays; day += 1) {
         const raw = (drift + normal(random) * dailyVolatility) * multiplier;
-        const daily = asset.category === "美股" ? Math.max(-.999, raw) : clamp(raw, -.1, .1);
+        const daily = asset.category === "美股" ? clamp(raw, -.3, .3) : clamp(raw, -.1, .1);
         factor *= 1 + daily;
       }
       moveRate = factor - 1;
@@ -443,7 +443,7 @@ function maybeFamilyBorrow(game, policy, random) {
 }
 
 function illnessChance(health) {
-  return health >= 80 ? .02 : health >= 60 ? .04 : health >= 40 ? .08 : health >= 20 ? .15 : .25;
+  return health >= 80 ? .02 : health >= 60 ? .04 : health >= 40 ? .1 : health >= 20 ? .15 : .25;
 }
 
 function maybeIllness(game, policy, random) {
