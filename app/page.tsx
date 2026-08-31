@@ -3329,7 +3329,7 @@ export default function Home() {
           <h1>韭菜人生<br/>模擬器</h1>
           <p className="start-intro">
             <span>22 歲，剛大學畢業的你，帶著三十萬元和提前退休的夢走進市場。</span>
-            <span>靠打工、家裡支援或經營投資帳號活下去——直到存到三千萬，或先被市場退休。</span>
+            <span>靠打工、家裡支援或經營投資帳號活下去——直到存到三千萬提早退休，或先被市場退休。</span>
           </p>
           <label className="name-field"><span>角色姓名 <small>留白會隨機取名</small></span><input type="text" value={playerName} maxLength={16} placeholder="輸入你的韭菜大名" onChange={(event) => setPlayerName(event.target.value)} /></label>
           <button className="primary start-button" onClick={beginLife}>抽取我的投資人生 <span>→</span></button>

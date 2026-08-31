@@ -43,7 +43,7 @@ const websiteStructuredData = {
   '@type': 'WebSite',
   name: '韭菜人生模擬器',
   alternateName: 'JIU-CAI LIFE',
-  url: `${siteUrl}/`,
+  url: siteUrl.toString(),
   description: siteDescription,
   inLanguage: 'zh-Hant-TW',
 };
