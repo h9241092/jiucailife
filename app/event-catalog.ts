@@ -3,6 +3,15 @@ export type Action = "invest" | "learn" | "work" | "family" | "wait" | "hold" | 
 export type EventKind = "tech" | "market" | "crypto" | "housing" | "career" | "macro" | "meme";
 export type MarketDirection = "bullish" | "bearish";
 export type IntelChoiceEffects = { cash?: number; knowledge: number; stress: number; health?: number; credit?: number };
+export type EventLensEffect = {
+  label: string;
+  detail: string;
+  signalStrengthMultiplier: number;
+  primaryDurationBonusMonths: number;
+  readAccuracyModifiers: Record<"research" | "observe" | "trend", number>;
+  trendCashMultiplier?: number;
+  trendKnowledgeDelta?: number;
+};
 
 export type Choice = {
   label: string;
@@ -24,6 +33,7 @@ export type GameEvent = {
   topic: string;
   kind: EventKind;
   lensIndex: number;
+  lensEffect: EventLensEffect;
   tag: string;
   title: string;
   body: string;
@@ -247,13 +257,27 @@ const lenses = [
     body: "價格先反應，消息仍待確認。",
     quote: (meme: string) => `${meme}。先看數字。`,
     source: "開盤前的投資群組",
+    effect: {
+      label: "搶先反應",
+      detail: "行情訊號強度 +25%；消息仍混亂，研究／觀察／追熱門判讀率分別 −3%／−6%／−8%。",
+      signalStrengthMultiplier: 1.25,
+      primaryDurationBonusMonths: 0,
+      readAccuracyModifiers: { research: -.03, observe: -.06, trend: -.08 },
+    },
   },
   {
     tag: "小資生活帳",
-    title: "帳單先有感",
+    title: "後座力才開始",
     body: "薪水、生活與本金都要重排。",
     quote: (meme: string) => `${meme}。月底對帳。`,
     source: "月底現金流本人",
+    effect: {
+      label: "基本面延燒",
+      detail: "現金流影響較持久，主要標的行情訊號額外延長 1 季。",
+      signalStrengthMultiplier: 1,
+      primaryDurationBonusMonths: 3,
+      readAccuracyModifiers: { research: 0, observe: 0, trend: 0 },
+    },
   },
   {
     tag: "社群迷因場",
@@ -261,6 +285,15 @@ const lenses = [
     body: "獲利截圖跑得比查證快。",
     quote: (meme: string) => `${meme}。先別跟單。`,
     source: "轉傳三次後的原始消息",
+    effect: {
+      label: "流量陷阱",
+      detail: "C 選項流量收入 +50%、投資知識額外 −1；研究／觀察／追熱門判讀率分別 −2%／−8%／−12%。",
+      signalStrengthMultiplier: 1,
+      primaryDurationBonusMonths: 0,
+      readAccuracyModifiers: { research: -.02, observe: -.08, trend: -.12 },
+      trendCashMultiplier: 1.5,
+      trendKnowledgeDelta: -1,
+    },
   },
   {
     tag: "事後諸葛會",
@@ -268,6 +301,13 @@ const lenses = [
     body: "輪到你在答案公布前下注。",
     quote: () => "早知道，通常最貴。",
     source: "永遠買在最低點的回憶",
+    effect: {
+      label: "確認較晚",
+      detail: "線索較容易判讀，研究／觀察／追熱門判讀率分別 +8%／+8%／+5%；但行情訊號強度 −25%。",
+      signalStrengthMultiplier: .75,
+      primaryDurationBonusMonths: 0,
+      readAccuracyModifiers: { research: .08, observe: .08, trend: .05 },
+    },
   },
 ] as const;
 
@@ -594,6 +634,7 @@ export const events: GameEvent[] = catalogMoments.flatMap((moment, momentIndex) 
       topic: moment.topic,
       kind: moment.kind,
       lensIndex,
+      lensEffect: lens.effect,
       tag: `${moment.topic} · ${lens.tag}`,
       title: `${moment.headline}｜${lens.title}`,
       body: `${conciseContext(moment.context)}${marketSignal.hint}${lens.body}`,

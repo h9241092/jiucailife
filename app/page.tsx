@@ -239,7 +239,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.3";
+const GAME_VERSION = "v1.0.4";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -1008,6 +1008,11 @@ const intelEffectSummary = (effects: IntelChoiceEffects) => [
 const lifeChoicesForEvent = (event: GameEvent): Choice[] => {
   const copy = intelChoiceCopy[event.kind];
   const effects = intelEffectsByKind[event.kind];
+  const trendEffects: IntelChoiceEffects = {
+    ...effects.trend,
+    cash: Math.round((effects.trend.cash ?? 0) * (event.lensEffect.trendCashMultiplier ?? 1)),
+    knowledge: effects.trend.knowledge + (event.lensEffect.trendKnowledgeDelta ?? 0),
+  };
   return [
     {
       label: copy.research,
@@ -1029,12 +1034,12 @@ const lifeChoicesForEvent = (event: GameEvent): Choice[] => {
     },
     {
       label: copy.trend,
-      desc: `${intelEffectSummary(effects.trend)}；情報可能被熱門話術誤導。`,
+      desc: `${intelEffectSummary(trendEffects)}；情報可能被熱門話術誤導。`,
       action: "work",
       risk: "bold",
       minR: 2,
       intelAction: "trend",
-      intelEffects: effects.trend,
+      intelEffects: trendEffects,
     },
   ];
 };
@@ -1055,12 +1060,17 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
   // 同一事件的主要與連動標的共用一次多空判定；投顧老師不能對兩個標的同時又喊對又喊錯。
   const direction = signalDirectionForEvent(event, game.seed ^ signalHash(`${event.id}:${game.year}:${game.season}:${game.month}`));
   const hash = signalHash(`${game.seed}:${event.id}:${game.year}:${game.season}:${game.month}:${targetKey}`);
-  const totalMonths = role === "linked" ? 3 : hash % 2 === 0 ? 3 : 6;
-  const strength = role === "linked" ? .08 + (hash % 5) * .01 : .16 + (hash % 5) * .01;
-  const researchCorrect = signalReadSucceeded(hash, researchReadAccuracy(game.gauges.knowledge));
-  const observeAccuracy = observeReadAccuracy(game.gauges.knowledge);
+  const baseTotalMonths = role === "linked" ? 3 : hash % 2 === 0 ? 3 : 6;
+  const totalMonths = baseTotalMonths + (role === "primary" ? event.lensEffect.primaryDurationBonusMonths : 0);
+  const baseStrength = role === "linked" ? .08 + (hash % 5) * .01 : .16 + (hash % 5) * .01;
+  const strength = baseStrength * event.lensEffect.signalStrengthMultiplier;
+  const adjustAccuracy = (accuracy: number, modifier: number) => accuracy === 0 ? 0 : clamp(accuracy + modifier, 0, .99);
+  const researchAccuracy = adjustAccuracy(researchReadAccuracy(game.gauges.knowledge), event.lensEffect.readAccuracyModifiers.research);
+  const observeAccuracy = adjustAccuracy(observeReadAccuracy(game.gauges.knowledge), event.lensEffect.readAccuracyModifiers.observe);
+  const trendAccuracy = adjustAccuracy(clamp(.55 + game.gauges.knowledge * .003, .55, .86), event.lensEffect.readAccuracyModifiers.trend);
+  const researchCorrect = signalReadSucceeded(hash, researchAccuracy);
   const observeCorrect = observeAccuracy > 0 && signalReadSucceeded(hash, observeAccuracy);
-  const trendCorrect = signalReadSucceeded(hash, clamp(.55 + game.gauges.knowledge * .003, .55, .86));
+  const trendCorrect = signalReadSucceeded(hash, trendAccuracy);
   const readDirection = action === "research"
     ? role === "primary" ? researchCorrect ? direction : direction === "bullish" ? "bearish" : "bullish" : null
     : action === "trend"
@@ -1069,7 +1079,7 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
         ? observeCorrect ? direction : direction === "bullish" ? "bearish" : "bullish"
         : null;
   const directionLabel = readDirection === "bullish" ? "偏多" : readDirection === "bearish" ? "偏空" : "方向未明";
-  const researchConfidence = Math.round(researchReadAccuracy(game.gauges.knowledge) * 100);
+  const researchConfidence = Math.round(researchAccuracy * 100);
   const confidenceLabel = action === "research" && role === "primary" && game.gauges.knowledge >= KNOWLEDGE_CONFIDENCE_LEVEL
     ? `可信度約 ${Math.max(50, researchConfidence - 8)}～${Math.min(98, researchConfidence + 4)}%`
     : undefined;
@@ -1087,8 +1097,8 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
   const durationLabel = role === "linked"
     ? "預估影響 1 季"
     : action === "research" || game.gauges.knowledge >= 55
-    ? `預估影響 ${totalMonths === 3 ? "1 季" : "2 季"}`
-    : "影響時間可能為 1～2 季";
+    ? `預估影響 ${Math.ceil(totalMonths / 3)} 季`
+    : `影響時間可能為 ${event.lensEffect.primaryDurationBonusMonths ? "2～3" : "1～2"} 季`;
   const id = `${event.id}-${game.year}-${game.season}-${game.month}-${action}-${targetIndex}`;
   const groupId = `${event.id}-${game.year}-${game.season}-${game.month}-${action}`;
   return {
@@ -3585,7 +3595,8 @@ export default function Home() {
             <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · {currentEvent.tag}</p>
             {currentEventTargets.length > 0 && <div className="event-impact-tag event-impact-pair">{currentEventTargets.map((target, index) => <div key={`${target.category}:${target.name}`}><span>{index === 0 ? "主要標的" : "連動標的"}</span><b>{target.category} · 「{target.name}」</b><AssetQuoteLabel asset={target} game={game} /></div>)}</div>}
             {currentAdvisorSignal && <div className={`advisor-signal-card advisor-${currentAdvisorSignal.claimedDirection}`}><span>{currentAdvisorSignal.claimedDirection === "bullish" ? "老師喊多 ↗" : "老師喊空 ↘"}</span><b>{currentAdvisorSignal.label} · 參考命中率 {Math.round(currentAdvisorSignal.accuracy * 100)}%</b><small>{currentAdvisorSignal.warning}</small></div>}
-            <h1>{currentEvent.title}</h1><p className="lede">{currentEvent.body}</p><div className="quote">「{currentEvent.quote}」<span>— {currentEvent.source}</span></div><p className="question">主要標的影響較強、可延續 1～2 季；連動標的影響較弱且只維持 1 季。判讀後，再到券商 APP 自由買賣。</p><div className="choices">
+            <div className={`event-lens-effect lens-${currentEvent.lensIndex}`}><span>{currentEvent.title.split("｜").at(-1)}</span><b>{currentEvent.lensEffect.label}</b><small>{currentEvent.lensEffect.detail}</small></div>
+            <h1>{currentEvent.title}</h1><p className="lede">{currentEvent.body}</p><div className="quote">「{currentEvent.quote}」<span>— {currentEvent.source}</span></div><p className="question">主要標的影響較強、可延續 {currentEvent.lensEffect.primaryDurationBonusMonths ? "2～3" : "1～2"} 季；連動標的影響較弱且只維持 1 季。判讀後，再到券商 APP 自由買賣。</p><div className="choices">
               {currentChoices.map((choice, index) => {
                 const moneyHint = choiceMoneyHint(game, choice);
                 return <button key={choice.label} onClick={() => chooseEventOption(choice)}>

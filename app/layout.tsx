@@ -24,13 +24,13 @@ export const metadata: Metadata = {
     url: '/',
     siteName: '韭菜人生模擬器',
     locale: 'zh_TW',
-    images: [{ url: '/og.png?v=1.0.3-manga', width: 1536, height: 1024, alt: '韭菜人生模擬器' }],
+    images: [{ url: '/og.png?v=1.0.4-manga', width: 1536, height: 1024, alt: '韭菜人生模擬器' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: siteTitle,
     description: '三十萬元起始資金，能撐過幾輪市場？',
-    images: ['/og.png?v=1.0.3-manga'],
+    images: ['/og.png?v=1.0.4-manga'],
   },
   icons: { icon: '/favicon.svg' },
   verification: {

@@ -1,6 +1,6 @@
 # 韭菜人生模擬器 Wiki
 
-> 適用版本：`v1.0.3`
+> 適用版本：`v1.0.4`
 > 本頁整理公開的基礎規則；事件答案、完整成就條件與部分隱藏機制不在此公開。
 
 [立即遊玩](https://jiucai-life-simulator.mmrichdog.workers.dev/) · [回到專案首頁](README.md)
