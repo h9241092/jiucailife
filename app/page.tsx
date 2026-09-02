@@ -3353,7 +3353,7 @@ export default function Home() {
             <p>相同種子會重現初始能力、體質、事件順序與市場行情；也可以直接輸入朋友的種子碼。</p>
           </div>
           <small className="anonymous-notice">匿名記錄種子碼與遊戲選擇，用於平衡調整；不包含角色姓名或裝置識別，原始資料保存 180 天。</small>
-          <small>純屬娛樂，不構成投資建議 · 每輪約 10–20 分鐘</small>
+          <small>純屬娛樂，不構成投資建議 · 平均遊玩時間約 25 分鐘</small>
         </section>
         {showForeword && <div className="foreword-overlay" role="presentation">
           <section className="foreword-dialog" role="dialog" aria-modal="true" aria-labelledby="foreword-title">
