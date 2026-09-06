@@ -4,8 +4,10 @@ import { redirect } from "next/navigation";
 
 import { isAnalyticsAdmin } from "@/lib/admin-auth";
 import { readAnalyticsReport, readMetric, type MetricRow } from "@/lib/analytics-report";
+import { metricDimensionLabel, type LocalizedMetric } from "@/lib/analytics-metric-labels";
 
 import "./admin.css";
+import "./metric-labels.css";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +21,12 @@ const statusLabel = (status: string, lastSeenAt: string) => {
   return "進行中";
 };
 
-function MetricList({ title, rows, empty = "尚無資料" }: { title: string; rows: MetricRow[]; empty?: string }) {
+function MetricList({ title, rows, metric, empty = "尚無資料" }: { title: string; rows: MetricRow[]; metric?: LocalizedMetric; empty?: string }) {
   const highest = Math.max(1, ...rows.map((row) => row.count));
-  return <section className="analytics-panel analytics-ranking">
+  return <section className={`analytics-panel analytics-ranking${metric ? " analytics-localized" : ""}`}>
     <header><h2>{title}</h2><span>近 180 天</span></header>
     {rows.length ? <ol>{rows.map((row) => <li key={row.dimension}>
-      <div><b>{row.dimension}</b><span>{money.format(row.count)} 次</span></div>
+      <div><b>{metricDimensionLabel(metric, row.dimension)}</b><span>{money.format(row.count)} 次</span></div>
       <i><em style={{ width: `${Math.max(3, row.count / highest * 100)}%` }} /></i>
     </li>)}</ol> : <p className="analytics-empty">{empty}</p>}
   </section>;
@@ -71,12 +73,12 @@ export default async function AnalyticsAdminPage() {
 
     <section className="analytics-grid">
       <MetricList title="事件 A／B／C 選擇" rows={eventChoices} />
-      <MetricList title="年度生路選擇" rows={incomeChoices} />
+      <MetricList title="年度生路選擇" rows={incomeChoices} metric="income_choices" />
       <MetricList title="最常交易的標的" rows={trades} />
       <MetricList title="遊戲結局" rows={endings} />
-      <MetricList title="成就達成" rows={achievements} />
-      <MetricList title="生病事件選擇" rows={illnessChoices} />
-      <MetricList title="家庭事件選擇" rows={familyChoices} />
+      <MetricList title="成就達成" rows={achievements} metric="achievements" />
+      <MetricList title="生病事件選擇" rows={illnessChoices} metric="illness_choices" />
+      <MetricList title="家庭事件選擇" rows={familyChoices} metric="family_choices" />
       <MetricList title="季度突襲反應" rows={surprises} />
     </section>
 

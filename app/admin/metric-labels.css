@@ -1,0 +1,3 @@
+/* Chinese descriptions should wrap rather than disappear behind an ellipsis. */
+.analytics-localized li > div { align-items: baseline; }
+.analytics-localized li b { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.6; }
