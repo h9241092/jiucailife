@@ -239,7 +239,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.4";
+const GAME_VERSION = "v1.0.5";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -837,7 +837,7 @@ const FAMILY_BACKER_STARTING_CASH_BONUS = 200000;
 const FAMILY_BACKER_ANNUAL_SUPPORT = 400000;
 const familySupportAmount = (game: Pick<Game, "trait" | "gauges">) => game.trait === "家族靠山"
   ? FAMILY_BACKER_ANNUAL_SUPPORT
-  : Math.min(300000, Math.max(180000, Math.round((180000 + game.gauges.family * 1500) / 1000) * 1000));
+  : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
 const annualLivingCost = (year: number) => Math.round(240000 * Math.pow(1.02, year - 1) / 1000) * 1000;
 const achievementsFor = (game: Game): AchievementResult[] => {
   const stats = game.achievementStats ?? blankAchievementStats();
@@ -2952,7 +2952,7 @@ export default function Home() {
       const trackRecordBonus = kolTrackRecordIncomeBonus(game.lastYearReadAccuracy);
       const income = isColdStart
         ? outcome === "good"
-          ? Math.round((20000 + random() * 40000) / 1000) * 1000
+          ? Math.round((20000 + random() * 80000) / 1000) * 1000
           : outcome === "flat"
             ? Math.round(random() * 20000 / 1000) * 1000
             : 0
@@ -3000,7 +3000,7 @@ export default function Home() {
       const chance = familySupportChance(game);
       const approved = random() < chance;
       const support = familySupportAmount(game);
-      const fallbackIncome = 120000;
+      const fallbackIncome = 180000;
       const strain = Math.min(10, 4 + streak * 2);
       next.income = approved ? support : fallbackIncome;
       next.incomeSource = approved ? "家裡資助" : "家裡資助未通過 · 臨時零工";
@@ -3008,14 +3008,14 @@ export default function Home() {
       next.familySupportStreak = streak + 1;
       next.workConsecutiveYears = 0;
       if (!game.workTenureProtected) next.parttimeStreak = 0;
-      next.gauges.family = clamp(next.gauges.family - (approved ? strain : 3));
+      next.gauges.family = clamp(next.gauges.family - (approved ? strain : 5));
       next.gauges.health = clamp(next.gauges.health - (approved ? 0 : 2));
       next.gauges.stress = clamp(next.gauges.stress + (approved ? 2 : 8));
       notice = {
         tone: approved ? "good" : "bad",
         title: approved ? "家人答應支援，餐桌上也多了一張隱形對帳單。" : "家人沒有點頭，你只好先接臨時零工。",
-        body: approved ? `本年度獲得 ${formatMoney(support)} 資助，不計入負債並在年度結算時入帳。連續伸手仍會降低關係與下次核准率。` : `本次資助未通過；你臨時工作補進 ${formatMoney(fallbackIncome)} 年收入，代價是健康 −2、壓力 +8。生活費仍照常發生。`,
-        deltas: [`年末待入帳 ${approved ? formatMoney(support) : formatMoney(fallbackIncome)}`, `家庭關係 −${approved ? strain : 3}`, `壓力 +${approved ? 2 : 8}`, ...(!approved ? ["健康 −2"] : []), `連續申請 ${streak + 1} 年`],
+        body: approved ? `本年度獲得 ${formatMoney(support)} 資助，不計入負債並在年度結算時入帳。連續伸手仍會降低關係與下次核准率。` : `本次資助未通過；你臨時工作補進 ${formatMoney(fallbackIncome)} 年收入，代價是家庭關係 −5、健康 −2、壓力 +8。生活費仍照常發生。`,
+        deltas: [`年末待入帳 ${approved ? formatMoney(support) : formatMoney(fallbackIncome)}`, `家庭關係 −${approved ? strain : 5}`, `壓力 +${approved ? 2 : 8}`, ...(!approved ? ["健康 −2"] : []), `連續申請 ${streak + 1} 年`],
       };
     } else {
       next.achievementStats.parttimeYears += 1;
@@ -3377,7 +3377,7 @@ export default function Home() {
         </div>}
         <div className="start-meta" aria-label="遊戲版本與製作資訊">
           <small>版本：{GAME_VERSION}</small>
-          <small>製作人：傑佛瑞老割</small>
+          <small>製作人：<a href="https://www.threads.com/@kt48wu?igshid=NTc4MTIwNjQ2YQ=" target="_blank" rel="noopener noreferrer" aria-label="傑佛瑞老割的 Threads（另開分頁）">傑佛瑞老割</a></small>
         </div>
       </main>
     );
@@ -3778,8 +3778,8 @@ export default function Home() {
             </div>
           </section>
           <div className="income-path-list">
-            <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? "職業更新為投資KOL · 冷啟動期 · 收入 0～6 萬 · 小爆紅機率約 12%" : `職業更新為投資KOL · 收入 0～156 萬 · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力`}</small></button>
-            <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接12萬元臨時零工</small></button>
+            <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? "職業更新為投資KOL · 冷啟動期 · 收入 0～10 萬 · 小爆紅機率約 12%" : `職業更新為投資KOL · 收入 0～156 萬 · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力`}</small></button>
+            <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接18萬元臨時零工、家庭關係 −5</small></button>
             <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>麥當當員工</b><small>職業更新為麥當當員工 · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(outsideWorkIncome(game.parttimeStreak + 1))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1)}、壓力 +8</small></button>
           </div>
         </section>

@@ -103,6 +103,7 @@ button:focus-visible{outline:3px solid rgba(111,125,247,.42);outline-offset:3px}
 }
 .start-screen::after{opacity:.16;background-image:linear-gradient(rgba(83,96,150,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(83,96,150,.18) 1px,transparent 1px);background-size:36px 36px;mask-image:radial-gradient(circle at 50% 20%,black,transparent 74%)}
 .start-meta{position:absolute;right:clamp(16px,2.4vw,36px);bottom:calc(clamp(14px,2vw,28px) + env(safe-area-inset-bottom,0px));z-index:3;display:flex;align-items:center;gap:12px;color:#68718d;pointer-events:none}.start-meta small{font-size:10px;font-weight:600;letter-spacing:.04em;line-height:1.5}.start-meta small+small{padding-left:12px;border-left:1px solid rgba(104,113,141,.35)}
+.start-meta a{display:inline-block;padding-block:6px;color:#a9b9d3;pointer-events:auto;text-decoration:underline;text-underline-offset:3px}.start-meta a:hover{color:#55d9ca}.start-meta a:focus-visible{outline:2px solid #55d9ca;outline-offset:4px;border-radius:2px}
 .start-copy{
   width:min(720px,100%);
   max-width:none;
