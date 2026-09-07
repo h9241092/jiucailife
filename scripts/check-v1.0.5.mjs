@@ -74,8 +74,8 @@ test('ordinary family support spans 210000 to 330000, rounded to thousands', () 
     assert.equal(gameApi.familySupportAmount(g),Math.min(330000,Math.round((210000+family*1500)/1000)*1000));
   }
 });
-test('family backer support is unchanged at 400000', () => {
-  assert.equal(gameApi.familySupportAmount(initial({trait:'家族靠山'})),400000);
+test('family backer annual support is fixed at 500000', () => {
+  assert.equal(gameApi.familySupportAmount(initial({trait:'家族靠山'})),500000);
 });
 test('approved support is deferred income, not debt; first-year relationship cost remains four', () => {
   const before=initial(), {game,notice}=gameApi.runIncome(before,'family',[0]);
@@ -98,6 +98,6 @@ test('family chance and repeated requests keep their existing rules', () => {
   assert.equal(gameApi.runIncome(game,'family',[0]).game,game);
 });
 test('Wiki includes v1.0.5 figures and existing v1.0.4 event effects', () => {
-  for(const expected of ['0～100,000','210,000～330,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍']) assert(wiki.includes(expected),expected);
+  for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });

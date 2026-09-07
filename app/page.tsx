@@ -834,7 +834,7 @@ const kolTrackRecordIncomeBonus = (accuracy: number | null) => accuracy === null
   : Math.round(clamp((accuracy - .5) * 600000, -90000, 300000) / 1000) * 1000;
 const familySupportChance = (game: Pick<Game, "gauges" | "familySupportStreak">) => clamp(.3 + game.gauges.family * .007 - game.familySupportStreak * .05, .15, .9);
 const FAMILY_BACKER_STARTING_CASH_BONUS = 200000;
-const FAMILY_BACKER_ANNUAL_SUPPORT = 400000;
+const FAMILY_BACKER_ANNUAL_SUPPORT = 500000;
 const familySupportAmount = (game: Pick<Game, "trait" | "gauges">) => game.trait === "家族靠山"
   ? FAMILY_BACKER_ANNUAL_SUPPORT
   : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
@@ -1238,7 +1238,7 @@ const surpriseAngles = [
 const names = ["嘎尾", "喆喆", "成龍", "祥德", "銀龍", "千安", "屁渴脫", "骨癌"];
 const traits = [
   ["數字敏感", "投資知識較高，穩健選項成功率提升", { knowledge: 8 }],
-  ["家族靠山", "家庭關係 +10；起始現金額外 +20 萬元；家裡資助通過時，每年獲得 40 萬元", { family: 10 }],
+  ["家族靠山", "家庭關係 +10；起始現金額外 +20 萬元；家裡資助通過時，每年獲得 50 萬元", { family: 10 }],
   ["信用小白", "信用較低，但沒有任何歷史包袱", { credit: -8 }],
   ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -8 }],
   ["體弱多病", "初始健康只有 60～68，市場以外也有風險", { healthRange: [60, 68] }],
