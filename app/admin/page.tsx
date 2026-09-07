@@ -18,7 +18,8 @@ const percentage = (value: number, total: number) => total ? `${(value / total *
 const seasonNames = ["春季", "夏季", "秋季", "冬季"];
 const statusLabel = (status: string, lastSeenAt: string) => {
   if (status === "completed") return "已完成";
-  if (status === "abandoned" || Date.now() - Date.parse(`${lastSeenAt}Z`) > 30 * 60 * 1000) return "已離場";
+  if (status === "abandoned") return "已離場";
+  if (Date.now() - Date.parse(`${lastSeenAt}Z`) > 30 * 60 * 1000) return "逾時未確認";
   return "進行中";
 };
 
@@ -58,7 +59,9 @@ export default async function AnalyticsAdminPage() {
     <section className="analytics-kpis" aria-label="核心數據">
       <article><span>匿名局次</span><b>{money.format(summary.totalRuns)}</b><small>{money.format(summary.totalEvents)} 筆操作</small></article>
       <article><span>完成率</span><b>{percentage(summary.completedRuns, summary.totalRuns)}</b><small>{summary.completedRuns} 局完成</small></article>
-      <article><span>中途離場</span><b>{percentage(summary.abandonedRuns, summary.totalRuns)}</b><small>{summary.abandonedRuns} 局</small></article>
+      <article><span>進行中</span><b>{percentage(summary.activeRuns, summary.totalRuns)}</b><small>{summary.activeRuns} 局仍有近期操作</small></article>
+      <article><span>中途離場</span><b>{percentage(summary.abandonedRuns, summary.totalRuns)}</b><small>{summary.abandonedRuns} 局明確離場</small></article>
+      <article><span>逾時未確認</span><b>{percentage(summary.staleRuns, summary.totalRuns)}</b><small>{summary.staleRuns} 局缺少終局訊號</small></article>
       <article><span>提前退休</span><b>{percentage(summary.earlyRetirementRuns, summary.completedRuns)}</b><small>{summary.earlyRetirementRuns} 局達成</small></article>
       <article><span>平均最終淨資產</span><b>{formatMoney(summary.averageFinalNetWorth)}</b><small>僅計完成局</small></article>
       <article><span>平均完成時間</span><b>{summary.averageCompletionMinutes} 分</b><small>伺服器時間估算</small></article>
@@ -84,7 +87,7 @@ export default async function AnalyticsAdminPage() {
     </section>
 
     <section className="analytics-panel analytics-runs">
-      <header><h2>最近局次</h2><span>超過 30 分鐘無操作視為離場</span></header>
+      <header><h2>最近局次</h2><span>超過 30 分鐘無操作但未收到終局訊號，標為「逾時未確認」</span></header>
       <div className="analytics-table-wrap"><table>
         <thead><tr><th>開始時間（台灣）</th><th>種子碼</th><th>版本</th><th>人物性質</th><th>狀態</th><th>最後位置</th><th>操作數</th><th>結局／淨資產</th></tr></thead>
         <tbody>{recentRuns.map((run) => <tr key={run.id}>

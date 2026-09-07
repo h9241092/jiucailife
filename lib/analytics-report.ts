@@ -5,6 +5,7 @@ export type AnalyticsSummary = {
   completedRuns: number;
   activeRuns: number;
   abandonedRuns: number;
+  staleRuns: number;
   earlyRetirementRuns: number;
   averageFinalNetWorth: number;
   averageCompletionMinutes: number;
@@ -40,7 +41,8 @@ export async function readAnalyticsReport() {
       COUNT(*) AS total_runs,
       SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_runs,
       SUM(CASE WHEN status = 'active' AND last_seen_at >= datetime('now', '-30 minutes') THEN 1 ELSE 0 END) AS active_runs,
-      SUM(CASE WHEN status = 'abandoned' OR (status = 'active' AND last_seen_at < datetime('now', '-30 minutes')) THEN 1 ELSE 0 END) AS abandoned_runs,
+      SUM(CASE WHEN status = 'abandoned' THEN 1 ELSE 0 END) AS abandoned_runs,
+      SUM(CASE WHEN status = 'active' AND last_seen_at < datetime('now', '-30 minutes') THEN 1 ELSE 0 END) AS stale_runs,
       SUM(CASE WHEN early_retirement = 1 THEN 1 ELSE 0 END) AS early_retirement_runs,
       AVG(CASE WHEN status = 'completed' THEN final_net_worth END) AS average_final_net_worth,
       AVG(CASE WHEN completed_at IS NOT NULL THEN (julianday(completed_at) - julianday(started_at)) * 1440 END) AS average_completion_minutes
@@ -65,6 +67,7 @@ export async function readAnalyticsReport() {
     completedRuns: numberValue(raw.completed_runs),
     activeRuns: numberValue(raw.active_runs),
     abandonedRuns: numberValue(raw.abandoned_runs),
+    staleRuns: numberValue(raw.stale_runs),
     earlyRetirementRuns: numberValue(raw.early_retirement_runs),
     averageFinalNetWorth: Math.round(numberValue(raw.average_final_net_worth)),
     averageCompletionMinutes: Math.round(numberValue(raw.average_completion_minutes)),
