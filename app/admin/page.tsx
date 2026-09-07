@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { isAnalyticsAdmin } from "@/lib/admin-auth";
 import { readAnalyticsReport, readMetric, type MetricRow } from "@/lib/analytics-report";
 import { metricDimensionLabel, type LocalizedMetric } from "@/lib/analytics-metric-labels";
+import { taiwanTimeLabel } from "@/lib/analytics-time-label";
 
 import "./admin.css";
 import "./metric-labels.css";
@@ -85,9 +86,9 @@ export default async function AnalyticsAdminPage() {
     <section className="analytics-panel analytics-runs">
       <header><h2>最近局次</h2><span>超過 30 分鐘無操作視為離場</span></header>
       <div className="analytics-table-wrap"><table>
-        <thead><tr><th>開始時間</th><th>種子碼</th><th>版本</th><th>人物性質</th><th>狀態</th><th>最後位置</th><th>操作數</th><th>結局／淨資產</th></tr></thead>
+        <thead><tr><th>開始時間（台灣）</th><th>種子碼</th><th>版本</th><th>人物性質</th><th>狀態</th><th>最後位置</th><th>操作數</th><th>結局／淨資產</th></tr></thead>
         <tbody>{recentRuns.map((run) => <tr key={run.id}>
-          <td>{run.startedAt.replace("T", " ").slice(0, 16)}</td><td><code>{run.seedCode}</code></td><td>{run.gameVersion}</td><td>{run.trait ?? "未記錄"}<small>{run.specialTrait ?? "無特殊體質"}</small></td>
+          <td>{taiwanTimeLabel(run.startedAt)}</td><td><code>{run.seedCode}</code></td><td>{run.gameVersion}</td><td>{run.trait ?? "未記錄"}<small>{run.specialTrait ?? "無特殊體質"}</small></td>
           <td><span className={`run-status status-${statusLabel(run.status, run.lastSeenAt)}`}>{statusLabel(run.status, run.lastSeenAt)}</span></td>
           <td>{run.lastAge ? `${run.lastAge} 歲 · ${seasonNames[run.lastSeason ?? 0] ?? "未知"}` : "剛開始"}<small>{run.lastEventType ?? "尚無操作"}</small></td>
           <td>{run.eventCount}</td><td>{run.ending ?? "—"}<small>{run.finalNetWorth === null ? "" : formatMoney(run.finalNetWorth)}</small></td>
