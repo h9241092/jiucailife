@@ -239,7 +239,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.5";
+const GAME_VERSION = "v1.0.6";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -524,17 +524,6 @@ function WealthHistoryChart({ game }: { game: Game }) {
     x: history.length <= 1 ? 50 : index / (history.length - 1) * 100,
     y: chartY(snapshot.netWorth),
   }));
-  const segments = points.slice(1).map((point, index) => {
-    const previous = points[index];
-    const dx = point.x - previous.x;
-    const dy = point.y - previous.y;
-    return {
-      ...point,
-      previous,
-      length: Math.hypot(dx, dy * .42),
-      angle: Math.atan2(dy * .42, dx) * 180 / Math.PI,
-    };
-  });
   const highest = history.reduce((best, snapshot) => snapshot.netWorth > best.netWorth ? snapshot : best);
   const lowest = history.reduce((worst, snapshot) => snapshot.netWorth < worst.netWorth ? snapshot : worst);
   const totalChange = history[history.length - 1].netWorth - history[0].netWorth;
@@ -548,9 +537,15 @@ function WealthHistoryChart({ game }: { game: Game }) {
     <div className="wealth-chart-layout">
       <div className="wealth-chart-scale" aria-hidden="true"><span>{formatChartMoney(scaleMaximum)}</span><span>{formatChartMoney(scaleMinimum)}</span></div>
       <div className="wealth-chart-plot" role="img" aria-label={`22 歲至結算時的歷年淨資產折線圖：${ariaSummary}`}>
-        {[12, 31, 50, 69, 88].map((top) => <i className="wealth-chart-gridline" style={{ top: `${top}%` }} key={top} />)}
-        {zeroY >= 12 && zeroY <= 88 && <i className="wealth-chart-zero" style={{ top: `${zeroY}%` }}><span>0</span></i>}
-        {segments.map((segment, index) => <i className={`wealth-chart-segment ${segment.netWorth >= segment.previous.netWorth ? "wealth-up" : "wealth-down"}`} style={{ left: `${segment.previous.x}%`, top: `${segment.previous.y}%`, width: `${segment.length}%`, transform: `rotate(${segment.angle}deg)` }} key={`wealth-segment-${index}`} />)}
+        <svg className="wealth-chart-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          {[12, 31, 50, 69, 88].map((top) => <line className="wealth-chart-gridline" x1="0" x2="100" y1={top} y2={top} vectorEffect="non-scaling-stroke" key={top} />)}
+          {zeroY >= 12 && zeroY <= 88 && <line className="wealth-chart-zero" x1="0" x2="100" y1={zeroY} y2={zeroY} vectorEffect="non-scaling-stroke" />}
+          {points.slice(1).map((point, index) => {
+            const previous = points[index];
+            return <line className={`wealth-chart-segment ${point.netWorth >= previous.netWorth ? "wealth-up" : "wealth-down"}`} x1={previous.x} x2={point.x} y1={previous.y} y2={point.y} vectorEffect="non-scaling-stroke" key={`wealth-segment-${index}`} />;
+          })}
+        </svg>
+        {zeroY >= 12 && zeroY <= 88 && <span className="wealth-chart-zero-label" style={{ top: `${zeroY}%` }}>0</span>}
         {points.map((point, index) => <i className={`wealth-chart-point ${point.netWorth < 0 ? "wealth-negative" : ""} ${index === points.length - 1 ? "wealth-final" : ""}`} style={{ left: `${point.x}%`, top: `${point.y}%` }} title={`${point.age} 歲 ${formatMoney(point.netWorth)}`} key={`wealth-point-${index}`} />)}
       </div>
     </div>
@@ -866,6 +861,7 @@ const achievementsFor = (game: Game): AchievementResult[] => {
     { id: "frequentPatient", title: "醫院VIP", tier: "一般", description: "活到31歲，累計觸發至少5次生病事件。", progress: `本局生病 ${stats.illnesses}／5 次`, unlocked: completedRun && stats.illnesses >= 5 },
     { id: "surpriseCollector", title: "突襲收藏家", tier: "稀有", description: "活到31歲，累計遇到至少12次季度突襲。", progress: `本局突襲 ${stats.surprises}／12 次`, unlocked: completedRun && stats.surprises >= 12 },
     { id: "paperHandsWin", title: "紙手也能贏", tier: "史詩", description: "紙手體質活到31歲，最終淨資產達300萬元。", progress: `${game.specialTrait ?? "未獲得紙手體質"} · 淨資產 ${formatMoney(net)}`, unlocked: completedRun && game.specialTrait === "紙手體質" && net >= 3000000 },
+    { id: "paperHandsDiamond", title: "紙手變鑽石手", tier: "傳說", description: "紙手體質活到31歲，最終淨資產超過1,500萬元。", progress: `${game.specialTrait ?? "未獲得紙手體質"} · 淨資產 ${formatMoney(net)}／需超過 ${formatMoney(15000000)}`, unlocked: completedRun && game.specialTrait === "紙手體質" && net > 15000000 },
     { id: "minimalist", title: "極簡投資家", tier: "稀有", description: "不使用銀行信貸、最高持倉不超過2筆，並以300萬元淨資產活到31歲。", progress: `最高持倉 ${stats.maxAssetRows} 筆 · 信貸 ${formatMoney(stats.cumulativeCreditBorrowed)} · 淨資產 ${formatMoney(net)}`, unlocked: completedRun && stats.maxAssetRows <= 2 && net >= 3000000 && stats.cumulativeCreditBorrowed === 0 },
     { id: "diversified", title: "資產動物園", tier: "一般", description: "曾同時持有至少10筆資產，且涵蓋台股、ETF、美股與加密貨幣。", progress: stats.diversifiedPeak ? "四類資產與10筆持倉均已達成" : `最高持倉 ${stats.maxAssetRows}／10 筆`, unlocked: completedRun && stats.diversifiedPeak },
   ];

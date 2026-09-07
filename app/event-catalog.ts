@@ -303,10 +303,10 @@ const lenses = [
     source: "永遠買在最低點的回憶",
     effect: {
       label: "確認較晚",
-      detail: "線索較容易判讀，研究／觀察／追熱門判讀率分別 +8%／+8%／+5%；但行情訊號強度 −25%。",
+      detail: "線索較容易判讀，研究／觀察／追熱門判讀率分別 +9%／+8%／+4%；但行情訊號強度 −25%。",
       signalStrengthMultiplier: .75,
       primaryDurationBonusMonths: 0,
-      readAccuracyModifiers: { research: .08, observe: .08, trend: .05 },
+      readAccuracyModifiers: { research: .09, observe: .08, trend: .04 },
     },
   },
 ] as const;

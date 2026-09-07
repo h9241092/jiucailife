@@ -13,7 +13,7 @@ const home = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.
 const handler = home.body.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'chooseIncomePath').getText(parsed);
 const prefix = source.slice(0, home.getStart(parsed));
 const moduleSource = `${prefix}
-export { makeGame, familySupportAmount, familySupportChance, GAME_VERSION };
+export { makeGame, familySupportAmount, familySupportChance, achievementsFor, GAME_VERSION };
 export function runIncome(initial, path, suppliedRolls) {
   const game = initial;
   const rolls = [...suppliedRolls];
@@ -40,14 +40,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE105');
+  const game = gameApi.makeGame('', 'RELEASE106');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.0.5 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.0.5');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.5');
-  assert.match(wiki, /適用版本：`v1\.0\.5`/);
+test('v1.0.6 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.0.6');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.6');
+  assert.match(wiki, /適用版本：`v1\.0\.6`/);
 });
 test('producer Threads link is safe, focusable and pointer-enabled', () => {
   assert.match(source, /href="https:\/\/www\.threads\.com\/@kt48wu\?igshid=NTc4MTIwNjQ2YQ=" target="_blank" rel="noopener noreferrer"/);
@@ -97,7 +97,32 @@ test('family chance and repeated requests keep their existing rules', () => {
   assert.equal(game.gauges.family,52);assert.equal(game.familySupportStreak,3);
   assert.equal(gameApi.runIncome(game,'family',[0]).game,game);
 });
-test('Wiki includes v1.0.5 figures and existing v1.0.4 event effects', () => {
-  for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍']) assert(wiki.includes(expected),expected);
+test('paper hands diamond requires surviving to 31 with strictly more than 15000000', () => {
+  const achievement = cash => gameApi.achievementsFor(initial({age:31,specialTrait:'紙手體質',cash,debt:0,assets:[]})).find(item => item.id === 'paperHandsDiamond');
+  assert.equal(achievement(15000000).unlocked,false);
+  assert.equal(achievement(15000001).unlocked,true);
+  assert.equal(achievement(15000001).title,'紙手變鑽石手');
+  assert.equal(achievement(15000001).tier,'傳說');
+  assert.equal(gameApi.achievementsFor(initial({age:30,specialTrait:'紙手體質',cash:20000000,debt:0,assets:[]})).find(item => item.id === 'paperHandsDiamond').unlocked,false);
+  assert.equal(gameApi.achievementsFor(initial({age:31,specialTrait:null,cash:20000000,debt:0,assets:[]})).find(item => item.id === 'paperHandsDiamond').unlocked,false);
+});
+test('late confirmation lens uses A +9, B +8 and C +4 percentage points', () => {
+  const event = catalog.buildLifeEventDeck(106,20).find(item => item.lensIndex === 3);
+  assert(event);
+  assert.equal(event.lensEffect.readAccuracyModifiers.research,.09);
+  assert.equal(event.lensEffect.readAccuracyModifiers.observe,.08);
+  assert.equal(event.lensEffect.readAccuracyModifiers.trend,.04);
+  assert.match(event.lensEffect.detail,/\+9%／\+8%／\+4%/);
+});
+test('mobile wealth chart uses a full-width SVG coordinate system', () => {
+  const wealthChart = source.slice(source.indexOf('function WealthHistoryChart'), source.indexOf('async function endingCardPng'));
+  assert.match(source,/className="wealth-chart-lines" viewBox="0 0 100 100" preserveAspectRatio="none"/);
+  assert.match(css,/\.wealth-chart-layout\{display:flex;width:100%;min-width:0/);
+  assert.match(css,/\.wealth-chart-plot\{[^}]*flex:1 1 0;[^}]*min-width:0/);
+  assert.match(css,/\.wealth-chart-scale\{[^}]*white-space:nowrap/);
+  assert(!wealthChart.includes('Math.hypot'));
+});
+test('Wiki includes v1.0.6 figures and existing event effects', () => {
+  for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });

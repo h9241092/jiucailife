@@ -27,6 +27,7 @@ const achievementLabels: Readonly<Record<string, string>> = {
   frequentPatient: "醫院VIP",
   surpriseCollector: "突襲收藏家",
   paperHandsWin: "紙手也能贏",
+  paperHandsDiamond: "紙手變鑽石手",
   minimalist: "極簡投資家",
   diversified: "資產動物園",
 };

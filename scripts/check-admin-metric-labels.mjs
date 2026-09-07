@@ -47,7 +47,7 @@ test('every achievement uses the exact in-game Chinese title', () => {
   const game = fs.readFileSync('app/page.tsx', 'utf8');
   const catalog = game.slice(game.indexOf('const achievementsFor ='), game.indexOf('const riskLabel ='));
   const achievements = [...catalog.matchAll(/\{ id: "([^"]+)", title: "([^"]+)"/g)];
-  assert.equal(achievements.length, 21);
+  assert.equal(achievements.length, 22);
   for (const [, id, title] of achievements) assert.equal(label('achievements', id), title);
 });
 
