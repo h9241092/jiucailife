@@ -38,7 +38,9 @@ test("invalid historical values remain readable", () => {
 
 test("admin column names the timezone and no longer truncates raw UTC", () => {
   const admin = fs.readFileSync("app/admin/page.tsx", "utf8");
+  const runFormat = fs.readFileSync("lib/analytics-run-format.ts", "utf8");
   assert.match(admin, /<th>開始時間（台灣）<\/th>/);
-  assert.match(admin, /taiwanTimeLabel\(run\.startedAt\)/);
+  assert.match(admin, /runTimeLabel\(run\.startedAt\)/);
+  assert.match(runFormat, /return taiwanTimeLabel\(value\)/);
   assert.doesNotMatch(admin, /run\.startedAt\.replace/);
 });

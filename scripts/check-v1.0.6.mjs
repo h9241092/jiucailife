@@ -8,6 +8,11 @@ import ts from 'typescript';
 const source = fs.readFileSync('app/page.tsx', 'utf8');
 const css = fs.readFileSync('app/globals.css', 'utf8');
 const wiki = fs.readFileSync('WIKI.md', 'utf8');
+const approximateSimulator = fs.readFileSync('scripts/simulate-full-life.mjs', 'utf8');
+const currentSimulator = fs.readFileSync('scripts/simulate-current-game.mjs', 'utf8');
+const simulationRunner = fs.readFileSync('scripts/run-current-simulation.mjs', 'utf8');
+const directionExporter = fs.readFileSync('scripts/export-core-event-directions.mjs', 'utf8');
+const titleExporter = fs.readFileSync('scripts/export-event-titles.mjs', 'utf8');
 const parsed = ts.createSourceFile('page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const home = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'Home');
 const handler = home.body.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'chooseIncomePath').getText(parsed);
@@ -125,4 +130,19 @@ test('mobile wealth chart uses a full-width SVG coordinate system', () => {
 test('Wiki includes v1.0.6 figures and existing event effects', () => {
   for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
+});
+test('local simulation and event export tools follow the current v1.0.6 rules', () => {
+  for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
+  for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
+  assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);
+  assert.match(approximateSimulator, /Math\.min\(330000, Math\.max\(210000/);
+  assert.match(approximateSimulator, /game\.income = approved \? support : 180000/);
+  assert.match(approximateSimulator, /approved \? strain : 5/);
+  assert.match(approximateSimulator, /paperHandsDiamond/);
+  assert.match(approximateSimulator, /net > 15000000/);
+  assert.match(directionExporter, /\+9%／\+8%／\+4%/);
+  assert.match(directionExporter, /core-event-market-directions-v\$\{gameVersion\}/);
+  assert.match(titleExporter, /event-catalog-v\$\{gameVersion\}/);
+  assert.match(currentSimulator, /seedPrefix = process\.argv\[5\] \?\? `QA\$\{app\.GAME_VERSION/);
+  assert.match(simulationRunner, /seedPrefix = `QA\$\{packageVersion/);
 });

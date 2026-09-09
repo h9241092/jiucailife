@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { isAnalyticsAdmin } from "@/lib/admin-auth";
 import { readAnalyticsReport, readMetric, type MetricRow } from "@/lib/analytics-report";
 import { metricDimensionLabel, type LocalizedMetric } from "@/lib/analytics-metric-labels";
-import { taiwanTimeLabel } from "@/lib/analytics-time-label";
+import { runPositionLabel, runStatusLabel as statusLabel, runTimeLabel } from "@/lib/analytics-run-format";
+import ExportRunsButton from "./export-runs-button";
 
 import "./admin.css";
 import "./metric-labels.css";
@@ -15,13 +16,6 @@ export const dynamic = "force-dynamic";
 const money = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
 const formatMoney = (value: number) => `${value < 0 ? "−" : ""}NT$ ${money.format(Math.abs(Math.round(value)))}`;
 const percentage = (value: number, total: number) => total ? `${(value / total * 100).toFixed(1)}%` : "0.0%";
-const seasonNames = ["春季", "夏季", "秋季", "冬季"];
-const statusLabel = (status: string, lastSeenAt: string) => {
-  if (status === "completed") return "已完成";
-  if (status === "abandoned") return "已離場";
-  if (Date.now() - Date.parse(`${lastSeenAt}Z`) > 30 * 60 * 1000) return "逾時未確認";
-  return "進行中";
-};
 
 function MetricList({ title, rows, metric, empty = "尚無資料" }: { title: string; rows: MetricRow[]; metric?: LocalizedMetric; empty?: string }) {
   const highest = Math.max(1, ...rows.map((row) => row.count));
@@ -87,13 +81,13 @@ export default async function AnalyticsAdminPage() {
     </section>
 
     <section className="analytics-panel analytics-runs">
-      <header><h2>最近局次</h2><span>超過 30 分鐘無操作但未收到終局訊號，標為「逾時未確認」</span></header>
+      <header className="analytics-runs-header"><section><h2>最近局次</h2><p>顯示最近 20 局／共 {money.format(summary.totalRuns)} 局；超過 30 分鐘無操作但未收到終局訊號，標為「逾時未確認」。</p></section><ExportRunsButton /></header>
       <div className="analytics-table-wrap"><table>
         <thead><tr><th>開始時間（台灣）</th><th>種子碼</th><th>版本</th><th>人物性質</th><th>狀態</th><th>最後位置</th><th>操作數</th><th>結局／淨資產</th></tr></thead>
         <tbody>{recentRuns.map((run) => <tr key={run.id}>
-          <td>{taiwanTimeLabel(run.startedAt)}</td><td><code>{run.seedCode}</code></td><td>{run.gameVersion}</td><td>{run.trait ?? "未記錄"}<small>{run.specialTrait ?? "無特殊體質"}</small></td>
+          <td>{runTimeLabel(run.startedAt)}</td><td><code>{run.seedCode}</code></td><td>{run.gameVersion}</td><td>{run.trait ?? "未記錄"}<small>{run.specialTrait ?? "無特殊體質"}</small></td>
           <td><span className={`run-status status-${statusLabel(run.status, run.lastSeenAt)}`}>{statusLabel(run.status, run.lastSeenAt)}</span></td>
-          <td>{run.lastAge ? `${run.lastAge} 歲 · ${seasonNames[run.lastSeason ?? 0] ?? "未知"}` : "剛開始"}<small>{run.lastEventType ?? "尚無操作"}</small></td>
+          <td>{runPositionLabel(run.lastAge, run.lastSeason)}<small>{run.lastEventType ?? "尚無操作"}</small></td>
           <td>{run.eventCount}</td><td>{run.ending ?? "—"}<small>{run.finalNetWorth === null ? "" : formatMoney(run.finalNetWorth)}</small></td>
         </tr>)}</tbody>
       </table></div>

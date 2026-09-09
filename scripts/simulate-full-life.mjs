@@ -6,11 +6,13 @@ const BASE_WORK_HEALTH_COST = Number(process.argv[3] ?? 5);
 const SEED_OFFSET = Number(process.argv[4] ?? 0);
 const OUTPUT_PATH = process.argv[5] ?? null;
 const WORK_HEALTH_ESCALATION = Number(process.argv[6] ?? 1);
+const GAME_VERSION = `v${JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8")).version}`;
 const YEARS = 9;
 const EVENTS_PER_YEAR = 8;
 const STARTING_CASH = 300000;
 const workHealthCost = (consecutiveYears) => BASE_WORK_HEALTH_COST + Math.max(0, consecutiveYears - 2) * WORK_HEALTH_ESCALATION;
 const FAMILY_BACKER_STARTING_CASH_BONUS = 200000;
+const FAMILY_BACKER_ANNUAL_SUPPORT = 500000;
 const FAILURE_NET = -500000;
 const RETIREMENT_NET = 30000000;
 const CREDIT_RATE = .06;
@@ -24,7 +26,7 @@ const KNOWLEDGE_SIGNAL_MOVE_MULTIPLIER = 1.1;
 const FORESIGHT_CHANCE = .25;
 const BREAKOUT_STREAK_TARGET = 3;
 const BREAKOUT_UNLOCK_CHANCE = .18;
-const BREAKOUT_MOVE_MULTIPLIER = 2.5;
+const BREAKOUT_MOVE_MULTIPLIER = 1.8;
 
 const POLICIES = [
   { id: "safe", label: "穩健打工族" },
@@ -71,6 +73,7 @@ const ACHIEVEMENTS = [
   ["leveragedSurvivor", "槓桿倖存者"],
   ["workForever", "打工人的完全體"],
   ["kolForever", "流量就是我的年薪"],
+  ["onlyTrustTrumpAdvisor", "只信川投顧"],
   ["familyForever", "伸手牌終身會員"],
   ["clearHead", "清醒的韭菜"],
   ["lastBreath", "最後一滴血"],
@@ -80,6 +83,7 @@ const ACHIEVEMENTS = [
   ["frequentPatient", "醫院VIP"],
   ["surpriseCollector", "突襲收藏家"],
   ["paperHandsWin", "紙手也能贏"],
+  ["paperHandsDiamond", "紙手變鑽石手"],
   ["minimalist", "極簡投資家"],
   ["diversified", "資產動物園"],
 ];
@@ -347,7 +351,7 @@ function chooseIncome(game, policy, random) {
     const roll = random();
     const outcome = roll < goodChance ? "good" : roll < goodChance + flatChance ? "flat" : "bad";
     const trackRecordBonus = kolTrackRecordIncomeBonus(game.lastYearReadAccuracy);
-    if (game.year === 1) game.income = outcome === "good" ? Math.round((20000 + random() * 40000) / 1000) * 1000 : outcome === "flat" ? Math.round(random() * 20000 / 1000) * 1000 : 0;
+    if (game.year === 1) game.income = outcome === "good" ? Math.round((20000 + random() * 80000) / 1000) * 1000 : outcome === "flat" ? Math.round(random() * 20000 / 1000) * 1000 : 0;
     else game.income = outcome === "good"
       ? Math.min(KOL_MAX_ANNUAL_INCOME, Math.round((180000 + game.knowledge * 3000 + game.kolReputation * 5000 + trackRecordBonus + random() * 535000) / 1000) * 1000)
       : outcome === "flat"
@@ -373,14 +377,14 @@ function chooseIncome(game, policy, random) {
     game.familyIncomeYears += 1;
     const approved = random() < clamp(.3 + game.family * .007 - game.familySupportStreak * .05, .15, .9);
     const support = game.trait === "家族靠山"
-      ? 400000
-      : Math.min(300000, Math.max(180000, Math.round((180000 + game.family * 1500) / 1000) * 1000));
+      ? FAMILY_BACKER_ANNUAL_SUPPORT
+      : Math.min(330000, Math.max(210000, Math.round((210000 + game.family * 1500) / 1000) * 1000));
     const strain = Math.min(10, 4 + game.familySupportStreak * 2);
-    game.income = approved ? support : 120000;
+    game.income = approved ? support : 180000;
     game.familySupportStreak += 1;
     game.workConsecutiveYears = 0;
     if (!game.workTenureProtected) game.parttimeStreak = 0;
-    game.family = clamp(game.family - (approved ? strain : 3));
+    game.family = clamp(game.family - (approved ? strain : 5));
     game.health = clamp(game.health - (approved ? 0 : 2));
     game.stress = clamp(game.stress + (approved ? 2 : 8));
   }
@@ -606,6 +610,8 @@ function makeGame(seedCode) {
     currentHighStressQuarters: 0,
     maxHighStressQuarters: 0,
     diversifiedPeak: false,
+    redHatHoldingYears: 0,
+    maxRedHatHoldingYears: 0,
     intelChoices: { research: 0, observe: 0, trend: 0 },
     totalTrendIncome: 0,
     totalTrendKnowledgeLost: 0,
@@ -627,6 +633,7 @@ function unlockedAchievements(game) {
   if (completed && net > 0 && game.creditInvestedAmount >= 500000) unlocked.add("leveragedSurvivor");
   if (completed && game.yearsStarted > 0 && game.parttimeYears === game.yearsStarted) unlocked.add("workForever");
   if (completed && game.yearsStarted > 0 && game.kolYears === game.yearsStarted) unlocked.add("kolForever");
+  if (game.maxRedHatHoldingYears >= 5) unlocked.add("onlyTrustTrumpAdvisor");
   if (completed && game.familyIncomeYears >= 6) unlocked.add("familyForever");
   if (completed && game.knowledge >= 75) unlocked.add("clearHead");
   if (completed && game.health <= 15) unlocked.add("lastBreath");
@@ -636,6 +643,7 @@ function unlockedAchievements(game) {
   if (completed && game.illnesses >= 5) unlocked.add("frequentPatient");
   if (completed && game.surprises >= 12) unlocked.add("surpriseCollector");
   if (completed && game.paperHands && net >= 3000000) unlocked.add("paperHandsWin");
+  if (completed && game.paperHands && net > 15000000) unlocked.add("paperHandsDiamond");
   if (completed && game.maxAssetRows <= 2 && net >= 3000000 && game.cumulativeCreditBorrowed === 0) unlocked.add("minimalist");
   if (completed && game.diversifiedPeak) unlocked.add("diversified");
   return unlocked;
@@ -750,6 +758,9 @@ function play(run) {
       game.ending = "健康破產";
       break;
     }
+    const holdsRedHatPortfolio = [...game.assets.values()].some((asset) => asset.name === "紅帽美國優先組合" && asset.value > 0);
+    game.redHatHoldingYears = holdsRedHatPortfolio ? game.redHatHoldingYears + 1 : 0;
+    game.maxRedHatHoldingYears = Math.max(game.maxRedHatHoldingYears, game.redHatHoldingYears);
     finishYear(game, policy.id);
     if (game.health <= 0) {
       game.ending = "健康破產";
@@ -846,6 +857,7 @@ function endingsFor(subset) {
 
 const report = {
   configuration: {
+    gameVersion: GAME_VERSION,
     runs: RUNS,
     seedRange: `SIM ${SEED_OFFSET.toLocaleString()}–${(SEED_OFFSET + RUNS - 1).toLocaleString()}`,
     baseWorkHealthCost: BASE_WORK_HEALTH_COST,

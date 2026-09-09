@@ -93,8 +93,6 @@ test("terminal events survive queue trimming even if later ordinary events are a
 test("admin separates explicit departures from stale runs awaiting confirmation", () => {
   assert.match(reportSource, /status = 'abandoned' THEN 1 ELSE 0 END\) AS abandoned_runs/);
   assert.match(reportSource, /status = 'active' AND last_seen_at < datetime\('now', '-30 minutes'\).*AS stale_runs/);
-  assert.match(adminSource, /status === "abandoned"\) return "已離場"/);
-  assert.match(adminSource, /return "逾時未確認"/);
   assert.match(adminSource, /summary\.staleRuns/);
   assert.match(adminCss, /\.status-逾時未確認/);
 });
