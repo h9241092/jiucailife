@@ -21,7 +21,7 @@ const eventTypes = new Set([
 
 const allowedDataKeys = new Set([
   "trait", "specialTrait", "initialCash", "initialHealth", "initialStress", "initialFamily", "initialKnowledge", "initialCredit",
-  "eventId", "eventKind", "choice", "action", "response", "reason", "intelAction", "outcome", "category", "target", "linkedTarget",
+  "eventId", "eventKind", "choice", "action", "response", "reason", "intelAction", "outcome", "category", "target", "linkedTarget", "marketScope", "affectedTargets",
   "side", "ratio", "amount", "incomePath", "income", "direction", "truthful", "priceMove", "severity",
   "cash", "assetValue", "debt", "netWorth", "health", "stress", "family", "knowledge", "credit", "ending", "earlyRetirement", "achievementIds",
 ]);

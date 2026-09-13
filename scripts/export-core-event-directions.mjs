@@ -54,9 +54,10 @@ const lines = [
   "1. 一般股票、ETF與美股每月基礎下跌機率為 47%；加密貨幣為 50%。",
   "2. 主要標的訊號強度為 16%～20%；偏多訊號會從下跌機率扣除，偏空訊號會加到下跌機率。主要標的影響 1～2 季。",
   "3. 連動標的訊號強度為 8%～12%，計算方式相同，但只影響 1 季。",
-  "4. 多個有效訊號會疊加，最後下跌機率限制在 12%～88%。",
-  "5. 若標的已觸發連跌狀態，下跌機率至少 75%；若已觸發連漲狀態，下跌機率最多 35%。因此題目方向只改變機率，不保證價格一定照該方向走。",
-  "6. A／B／C 選項影響玩家看見的情報是否判讀正確；底層真正方向不會因玩家選項改變。",
+  "4. 標示市場擴散的事件會額外影響全部台股、全部美股或兩邊市場；擴散訊號強度為 5%～8%，只影響 1 季。",
+  "5. 多個有效訊號會疊加，最後下跌機率限制在 12%～88%。",
+  "6. 若標的已觸發連跌狀態，下跌機率至少 75%；若已觸發連漲狀態，下跌機率最多 35%。因此題目方向只改變機率，不保證價格一定照該方向走。",
+  "7. A／B／C 選項影響玩家看見的情報是否判讀正確；底層真正方向不會因玩家選項改變。",
   "",
   "## 四種敘述角度的實際效果",
   "",
@@ -94,6 +95,10 @@ grouped.forEach((group, topicIndex) => {
   lines.push(`- 因果依據：${audited.hint}`);
   lines.push(`- 主要標的：${primary.category}「${primary.name}」｜訊號強度 16%～20%｜影響 1～2 季`);
   lines.push(`- 連動標的：${firstEvent.linkedAsset.category}「${firstEvent.linkedAsset.name}」｜訊號強度 8%～12%｜影響 1 季`);
+  if (firstEvent.marketScope) {
+    const scopeLabel = firstEvent.marketScope === "taiwan" ? "全台股" : firstEvent.marketScope === "us" ? "全美股" : "台股＋美股";
+    lines.push(`- 市場擴散：${scopeLabel}｜訊號強度 5%～8%｜影響 1 季`);
+  }
   lines.push("- 所含題目：");
   for (const event of group.events) {
     eventNumber += 1;

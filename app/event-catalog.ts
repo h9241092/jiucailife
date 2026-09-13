@@ -2,6 +2,7 @@ export type Risk = "safe" | "steady" | "bold";
 export type Action = "invest" | "learn" | "work" | "family" | "wait" | "hold" | "reduce" | "buy" | "sell";
 export type EventKind = "tech" | "market" | "crypto" | "housing" | "career" | "macro" | "meme";
 export type MarketDirection = "bullish" | "bearish";
+export type MarketScope = "taiwan" | "us" | "global";
 export type IntelChoiceEffects = { cash?: number; knowledge: number; stress: number; health?: number; credit?: number };
 export type EventLensEffect = {
   label: string;
@@ -40,6 +41,7 @@ export type GameEvent = {
   quote: string;
   source: string;
   marketDirection: MarketDirection;
+  marketScope?: MarketScope;
   linkedAsset: { category: string; name: string };
   choices: Choice[];
 };
@@ -520,6 +522,29 @@ const catalogMoments = eligibleMoments;
 
 type AuditedMarketSignal = { direction: MarketDirection; hint: string };
 
+// 只有政策、利率、大盤與系統性風險事件會擴散到整個市場；
+// 公司、產業與投顧題材仍只影響主要與連動標的，避免所有股票長期同漲同跌。
+const marketScopeByTopic: Partial<Record<string, MarketScope>> = {
+  "盤中零股": "taiwan",
+  "台商回流": "taiwan",
+  "台股兩萬點": "taiwan",
+  "00940之亂": "taiwan",
+  "八月股災": "taiwan",
+  "國安基金進場": "taiwan",
+  "限空令護盤": "taiwan",
+  "川普勝選交易": "us",
+  "川普減稅行情": "us",
+  "零利率與無限水龍頭": "us",
+  "聯準會預防性降息": "us",
+  "川普再度勝選": "us",
+  "大而美減稅法案": "us",
+  "全球熔斷": "global",
+  "升息熊市": "global",
+  "關稅震撼": "global",
+  "對等關稅暫停鍵": "global",
+  "戰爭與通膨": "global",
+};
+
 // 題庫的價格方向由人工審查表決定，不再用標題關鍵字猜測。
 // hint 只補足因果線索，不直接把答案寫成「利多／利空」，讓玩家仍需自行判讀。
 const auditedMarketSignals: Record<string, AuditedMarketSignal> = {
@@ -641,6 +666,7 @@ export const events: GameEvent[] = catalogMoments.flatMap((moment, momentIndex) 
       quote: lens.quote(moment.meme),
       source: lens.source,
       marketDirection: marketSignal.direction,
+      marketScope: marketScopeByTopic[moment.topic],
       linkedAsset: linkedAssetForMoment(moment),
       choices: makeChoices(moment, lensIndex),
     };

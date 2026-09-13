@@ -45,14 +45,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE106');
+  const game = gameApi.makeGame('', 'RELEASE107');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.0.6 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.0.6');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.6');
-  assert.match(wiki, /適用版本：`v1\.0\.6`/);
+test('v1.0.7 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.0.7');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.7');
+  assert.match(wiki, /適用版本：`v1\.0\.7`/);
 });
 test('producer Threads link is safe, focusable and pointer-enabled', () => {
   assert.match(source, /href="https:\/\/www\.threads\.com\/@kt48wu\?igshid=NTc4MTIwNjQ2YQ=" target="_blank" rel="noopener noreferrer"/);
@@ -127,11 +127,11 @@ test('mobile wealth chart uses a full-width SVG coordinate system', () => {
   assert.match(css,/\.wealth-chart-scale\{[^}]*white-space:nowrap/);
   assert(!wealthChart.includes('Math.hypot'));
 });
-test('Wiki includes v1.0.6 figures and existing event effects', () => {
+test('Wiki includes v1.0.7 figures and existing event effects', () => {
   for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });
-test('local simulation and event export tools follow the current v1.0.6 rules', () => {
+test('local simulation and event export tools follow the current v1.0.7 rules', () => {
   for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
   for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
   assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);

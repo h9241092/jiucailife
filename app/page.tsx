@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createAnonymousRunId, postAnonymousAnalytics, type AnonymousEventType } from "./analytics";
-import { buildLifeEventDeck, events as lifeEvents, type Choice, type EventKind, type GameEvent, type IntelChoiceEffects } from "./event-catalog";
+import { buildLifeEventDeck, events as lifeEvents, type Choice, type EventKind, type GameEvent, type IntelChoiceEffects, type MarketScope } from "./event-catalog";
 
 type GaugeKey = "health" | "stress" | "family" | "knowledge" | "credit";
 type GaugeStats = Record<GaugeKey, number>;
@@ -35,12 +35,13 @@ type Resolution = {
 
 type SurpriseDirection = "bullish" | "bearish";
 type IntelAction = "research" | "observe" | "trend";
+type SignalRole = "primary" | "linked" | "market";
 type MarketSignal = {
   id: string;
   groupId: string;
   eventId: string;
   topic: string;
-  role: "primary" | "linked";
+  role: SignalRole;
   targetCategory: string;
   targetName: string;
   direction: SurpriseDirection;
@@ -68,7 +69,7 @@ type IntelRecord = {
   groupId: string;
   period: string;
   topic: string;
-  role: "primary" | "linked";
+  role: SignalRole;
   targetCategory: string;
   targetName: string;
   action: IntelAction;
@@ -136,6 +137,7 @@ type IllnessNotice = { tone: "good" | "flat" | "bad"; title: string; body: strin
 type PositionTradeNotice = { title: string; body: string; deltas: string[] };
 type PropertyReview = { event: GameEvent; targetId: string };
 type BrokerAsset = { category: string; name: string };
+type EventTarget = BrokerAsset & { role: SignalRole };
 type AchievementStats = {
   yearsStarted: number;
   kolYears: number;
@@ -239,7 +241,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.6";
+const GAME_VERSION = "v1.0.7";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -448,7 +450,22 @@ function AssetMiniTrend({ asset, game }: { asset: Pick<BrokerAsset, "category" |
     </div>
   </details>;
 }
-const eventTargetsForEvent = (event: GameEvent) => {
+const marketScopeCategories = (scope?: MarketScope) => scope === "taiwan"
+  ? ["台股"]
+  : scope === "us"
+    ? ["美股"]
+    : scope === "global"
+      ? ["台股", "美股"]
+      : [];
+const marketScopeLabel = (scope?: MarketScope) => scope === "taiwan"
+  ? "全台股"
+  : scope === "us"
+    ? "全美股"
+    : scope === "global"
+      ? "台股＋美股"
+      : "";
+const signalRoleLabel = (role: SignalRole) => role === "primary" ? "主要標的" : role === "market" ? "市場連動" : "連動標的";
+const eventTargetsForEvent = (event: GameEvent): EventTarget[] => {
   const uniqueTargets = Array.from(new Map(
     event.choices
       .map((choice) => choice.asset)
@@ -462,7 +479,17 @@ const eventTargetsForEvent = (event: GameEvent) => {
   const secondary = configuredLinkedKey === primaryKey
     ? undefined
     : brokerCatalog.find((target) => `${target.category}:${target.name}` === configuredLinkedKey);
-  return [primary, secondary].filter((target): target is BrokerAsset => Boolean(target));
+  const scopedCategories = new Set(marketScopeCategories(event.marketScope));
+  const candidates: EventTarget[] = [
+    { ...primary, role: "primary" },
+    ...(secondary ? [{ ...secondary, role: "linked" as const }] : []),
+    ...brokerCatalog.filter((target) => scopedCategories.has(target.category)).map((target) => ({ ...target, role: "market" as const })),
+  ];
+  return Array.from(candidates.reduce((targets, target) => {
+    const key = `${target.category}:${target.name}`;
+    if (!targets.has(key)) targets.set(key, target);
+    return targets;
+  }, new Map<string, EventTarget>()).values());
 };
 const blankAchievementStats = (): AchievementStats => ({
   yearsStarted: 0,
@@ -1012,7 +1039,7 @@ const lifeChoicesForEvent = (event: GameEvent): Choice[] => {
   return [
     {
       label: copy.research,
-      desc: `支出 ${formatMoney(INTEL_RESEARCH_COST)}；可靠確認主要標的方向，連動標的只確認受影響。${intelEffectSummary(effects.research)}。`,
+      desc: `支出 ${formatMoney(INTEL_RESEARCH_COST)}；可靠確認主要標的方向，連動標的${event.marketScope ? `與${marketScopeLabel(event.marketScope)}` : ""}只確認受影響。${intelEffectSummary(effects.research)}。`,
       action: "learn",
       risk: "safe",
       minR: 1,
@@ -1050,15 +1077,19 @@ const observeReadAccuracy = (knowledge: number) => knowledge >= KNOWLEDGE_SIGNAL
       : 0;
 const signalReadSucceeded = (hashValue: number, accuracy: number) => hashValue % 10000 < accuracy * 10000;
 
-function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, target: { category: string; name: string }, targetIndex = 0): { signal: MarketSignal; record: IntelRecord } {
+function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, target: EventTarget, targetIndex = 0): { signal: MarketSignal; record: IntelRecord } {
   const targetKey = `${target.category}:${target.name}`;
-  const role = targetIndex === 0 ? "primary" : "linked";
+  const role = target.role;
   // 同一事件的主要與連動標的共用一次多空判定；投顧老師不能對兩個標的同時又喊對又喊錯。
   const direction = signalDirectionForEvent(event, game.seed ^ signalHash(`${event.id}:${game.year}:${game.season}:${game.month}`));
   const hash = signalHash(`${game.seed}:${event.id}:${game.year}:${game.season}:${game.month}:${targetKey}`);
-  const baseTotalMonths = role === "linked" ? 3 : hash % 2 === 0 ? 3 : 6;
+  const baseTotalMonths = role === "primary" ? hash % 2 === 0 ? 3 : 6 : 3;
   const totalMonths = baseTotalMonths + (role === "primary" ? event.lensEffect.primaryDurationBonusMonths : 0);
-  const baseStrength = role === "linked" ? .08 + (hash % 5) * .01 : .16 + (hash % 5) * .01;
+  const baseStrength = role === "primary"
+    ? .16 + (hash % 5) * .01
+    : role === "market"
+      ? .05 + (hash % 4) * .01
+      : .08 + (hash % 5) * .01;
   const strength = baseStrength * event.lensEffect.signalStrengthMultiplier;
   const adjustAccuracy = (accuracy: number, modifier: number) => accuracy === 0 ? 0 : clamp(accuracy + modifier, 0, .99);
   const researchAccuracy = adjustAccuracy(researchReadAccuracy(game.gauges.knowledge), event.lensEffect.readAccuracyModifiers.research);
@@ -1082,7 +1113,7 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
   const clue = action === "research"
     ? role === "primary"
       ? `交叉查證後，主要線索較可靠地指向「${target.name}」${directionLabel}。${confidenceLabel ? `${confidenceLabel}。` : ""}`
-      : `查證後只能確認「${target.name}」是連動標的，方向仍待價格驗證。`
+      : `查證後只能確認「${target.name}」是${role === "market" ? "市場連動標的" : "連動標的"}，方向仍待價格驗證。`
     : action === "trend"
       ? `社群熱門聲量指向「${target.name}」${directionLabel}，但尚未查證，可能是反向話術。`
       : readDirection
@@ -1090,7 +1121,7 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
           ? `高知識判讀顯示「${target.name}」較明確地${directionLabel}，仍需承擔市場雜訊。`
           : `依目前投資知識，你暫時判讀「${target.name}」${directionLabel}，仍可能看錯。`
         : `目前只能確認「${target.name}」受到事件影響，方向仍需自行判讀。`;
-  const durationLabel = role === "linked"
+  const durationLabel = role !== "primary"
     ? "預估影響 1 季"
     : action === "research" || game.gauges.knowledge >= 55
     ? `預估影響 ${Math.ceil(totalMonths / 3)} 季`
@@ -1755,6 +1786,8 @@ export default function Home() {
       category: targets[0]?.category ?? null,
       target: targets[0]?.name ?? null,
       linkedTarget: targets[1]?.name ?? null,
+      marketScope: currentEvent.marketScope ?? null,
+      affectedTargets: targets.map((target) => `${target.category}:${target.name}`),
     }, game);
   }, [game?.year, game?.season, game?.month, game?.phase, game?.result, game?.lastIncomeChoiceYear, currentEvent?.id, propertyReview, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, positionTradeTarget, brokerOpen]);
   useEffect(() => {
@@ -2073,14 +2106,23 @@ export default function Home() {
           : readAttempted
             ? "主要標的判讀錯誤，連續看對次數歸零。"
             : "這次沒有形成明確方向判讀，不累積連勝。";
-        resolution.detail = `${resolution.detail} ${intels.map((intel) => `${intel.record.clue} ${intel.record.durationLabel}${intel.record.opportunityLabel ? `；${intel.record.opportunityLabel}` : ""}`).join("；")}；${streakNote}實際行情仍有隨機波動。`;
+        const focusedIntels = intels.filter((intel) => intel.signal.role !== "market");
+        const marketIntelCount = intels.length - focusedIntels.length;
+        const marketIntelDetail = marketIntelCount > 0
+          ? `；${marketScopeLabel(eventContext.marketScope)}另有 ${marketIntelCount} 檔受到較弱的 1 季擴散影響`
+          : "";
+        resolution.detail = `${resolution.detail} ${focusedIntels.map((intel) => `${intel.record.clue} ${intel.record.durationLabel}${intel.record.opportunityLabel ? `；${intel.record.opportunityLabel}` : ""}`).join("；")}${marketIntelDetail}；${streakNote}實際行情仍有隨機波動。`;
         resolution.deltas = [
           ...resolution.deltas,
           readCorrect ? `連續看對 ${next.correctSignalStreak}／${BREAKOUT_STREAK_TARGET}` : readAttempted ? "連續看對 歸零" : "連續看對 不變",
           ...(breakoutUnlocked ? ["稀有主升段 已解鎖"] : []),
           ...(foresightUnlocked ? ["提前一季情報 已取得"] : []),
         ];
-        resolution.deltas = [...resolution.deltas, `情報入庫：主要「${targets[0]?.name}」／連動「${targets[1]?.name}」`];
+        resolution.deltas = [
+          ...resolution.deltas,
+          `情報入庫：主要「${targets.find((target) => target.role === "primary")?.name}」／連動「${targets.find((target) => target.role === "linked")?.name}」`,
+          ...(marketIntelCount > 0 ? [`市場擴散：${marketScopeLabel(eventContext.marketScope)}共 ${targets.filter((target) => marketScopeCategories(eventContext.marketScope).includes(target.category)).length} 檔`] : []),
+        ];
       }
     }
 
@@ -2106,6 +2148,8 @@ export default function Home() {
       outcome: resolution.tone,
       category: choice.asset?.category ?? null,
       target: choice.asset?.name ?? null,
+      marketScope: sourceEvent?.marketScope ?? null,
+      affectedTargets: sourceEvent ? eventTargetsForEvent(sourceEvent).map((target) => `${target.category}:${target.name}`) : [],
       netWorth: Math.round(netWorth(next)),
       health: next.gauges.health,
       stress: next.gauges.stress,
@@ -3413,7 +3457,10 @@ export default function Home() {
     : game.gauges.stress >= 80 ? "目前處於高壓狀態，身心負荷已明顯升高。"
       : null;
   const activeSignalIds = new Set((game.activeSignals ?? []).map((signal) => signal.id));
-  const latestIntelRecords = (game.intelRecords ?? []).slice(0, 2);
+  const latestIntelGroupId = game.intelRecords?.[0]?.groupId;
+  const latestIntelRecords = latestIntelGroupId
+    ? (game.intelRecords ?? []).filter((record) => record.groupId === latestIntelGroupId)
+    : (game.intelRecords ?? []).slice(0, 2);
   const intelRoleOf = (record: IntelRecord) => record.role || (record.id.endsWith("-0") ? "primary" : "linked");
   const intelRecordGroups = Array.from((game.intelRecords ?? []).reduce((groups, record) => {
     const groupId = record.groupId || record.id.replace(/-\d+$/, "");
@@ -3427,32 +3474,45 @@ export default function Home() {
     groups.set(ageLabel, [...(groups.get(ageLabel) ?? []), records]);
     return groups;
   }, new Map<string, IntelRecord[][]>()).entries());
-  const currentEventIntel = currentEventTargets.map((target, index) => {
+  const currentEventIntel = currentEventTargets.map((target) => {
     const signals = (game.activeSignals ?? []).filter((signal) => signal.targetCategory === target.category && signal.targetName === target.name);
     return {
       target,
-      role: index === 0 ? "primary" as const : "linked" as const,
+      role: target.role,
       record: latestIntelRecords.find((record) => record.targetCategory === target.category && record.targetName === target.name),
       signals,
       summary: summarizeVisibleSignals(signals, game.intelRecords ?? []),
     };
   });
+  const currentFocusedIntel = currentEventIntel.filter((item) => item.role !== "market");
+  const currentMarketIntel = currentEventIntel.filter((item) => item.role === "market");
+  const currentMarketSummary = currentMarketIntel.length
+    ? summarizeVisibleSignals(currentMarketIntel.flatMap((item) => item.signals), game.intelRecords ?? [])
+    : null;
   const renderIntelGroup = (records: IntelRecord[]) => {
     const orderedRecords = [...records].sort((left, right) => intelRoleOf(left) === intelRoleOf(right) ? 0 : intelRoleOf(left) === "primary" ? -1 : 1);
     const first = orderedRecords[0];
     if (!first) return null;
     const groupIsActive = orderedRecords.some((record) => activeSignalIds.has(record.id));
+    const focusedRecords = orderedRecords.filter((record) => intelRoleOf(record) !== "market");
+    const marketRecords = orderedRecords.filter((record) => intelRoleOf(record) === "market");
+    const marketCategories = [...new Set(marketRecords.map((record) => record.targetCategory))].join("＋");
+    const marketDirection = marketRecords[0]?.readDirection;
     return <article className="intel-row intel-group-card" key={first.groupId || first.id}>
       <div className="intel-group-heading"><span>{first.period}</span><em className={groupIsActive ? "active" : "expired"}>{groupIsActive ? "部分或全部生效中" : "已到期"}</em></div>
       <h3>{first.topic}</h3>
-      <div className="intel-target-list">{orderedRecords.map((record) => {
+      <div className="intel-target-list">{focusedRecords.map((record) => {
         const signal = (game.activeSignals ?? []).find((item) => item.id === record.id);
         const role = intelRoleOf(record);
         return <section className={`intel-target-item intel-target-${role}`} key={record.id}>
-          <div><em>{role === "primary" ? "主要標的" : "連動標的"}</em><b>{record.targetCategory} · 「{record.targetName}」</b><AssetQuoteLabel asset={{ category: record.targetCategory, name: record.targetName }} game={game} /><i>{signal ? `剩 ${signal.remainingMonths} 月` : "已到期"}</i></div>
+          <div><em>{signalRoleLabel(role)}</em><b>{record.targetCategory} · 「{record.targetName}」</b><AssetQuoteLabel asset={{ category: record.targetCategory, name: record.targetName }} game={game} /><i>{signal ? `剩 ${signal.remainingMonths} 月` : "已到期"}</i></div>
           <p>{record.clue}</p><small>{record.actionLabel} · {record.durationLabel}{record.opportunityLabel ? ` · ${record.opportunityLabel}` : ""}</small>
         </section>;
-      })}</div>
+      })}{marketRecords.length > 0 && <section className="intel-target-item intel-target-market" key={`${first.groupId || first.id}-market`}>
+        <div><em>市場連動</em><b>{marketCategories} · {marketRecords.length} 檔</b><i>{groupIsActive ? "部分或全部生效中" : "已到期"}</i></div>
+        <p>{marketRecords.map((record) => `「${record.targetName}」`).join("、")}</p>
+        <small>{marketRecords[0].actionLabel} · {marketDirection === "bullish" ? "判讀偏多" : marketDirection === "bearish" ? "判讀偏空" : "方向仍待價格驗證"} · 預估影響 1 季</small>
+      </section>}</div>
     </article>;
   };
 
@@ -3589,10 +3649,13 @@ export default function Home() {
             })}</div>
           </article> : currentEvent && <article className="event-card">
             <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · {currentEvent.tag}</p>
-            {currentEventTargets.length > 0 && <div className="event-impact-tag event-impact-pair">{currentEventTargets.map((target, index) => <div key={`${target.category}:${target.name}`}><span>{index === 0 ? "主要標的" : "連動標的"}</span><b>{target.category} · 「{target.name}」</b><AssetQuoteLabel asset={target} game={game} /></div>)}</div>}
+            {currentEventTargets.length > 0 && <div className="event-impact-tag event-impact-pair">
+              {currentEventTargets.filter((target) => target.role !== "market").map((target) => <div key={`${target.category}:${target.name}`}><span>{signalRoleLabel(target.role)}</span><b>{target.category} · 「{target.name}」</b><AssetQuoteLabel asset={target} game={game} /></div>)}
+              {currentEvent?.marketScope && <div className="market-wide-impact"><span>市場擴散</span><b>{marketScopeLabel(currentEvent.marketScope)} · 共影響 {currentEventTargets.filter((target) => marketScopeCategories(currentEvent.marketScope).includes(target.category)).length} 檔</b><small>{currentEventTargets.filter((target) => target.role === "market").map((target) => `「${target.name}」`).join("、")}</small></div>}
+            </div>}
             {currentAdvisorSignal && <div className={`advisor-signal-card advisor-${currentAdvisorSignal.claimedDirection}`}><span>{currentAdvisorSignal.claimedDirection === "bullish" ? "老師喊多 ↗" : "老師喊空 ↘"}</span><b>{currentAdvisorSignal.label} · 參考命中率 {Math.round(currentAdvisorSignal.accuracy * 100)}%</b><small>{currentAdvisorSignal.warning}</small></div>}
             <div className={`event-lens-effect lens-${currentEvent.lensIndex}`}><span>{currentEvent.title.split("｜").at(-1)}</span><b>{currentEvent.lensEffect.label}</b><small>{currentEvent.lensEffect.detail}</small></div>
-            <h1>{currentEvent.title}</h1><p className="lede">{currentEvent.body}</p><div className="quote">「{currentEvent.quote}」<span>— {currentEvent.source}</span></div><p className="question">主要標的影響較強、可延續 {currentEvent.lensEffect.primaryDurationBonusMonths ? "2～3" : "1～2"} 季；連動標的影響較弱且只維持 1 季。判讀後，再到券商 APP 自由買賣。</p><div className="choices">
+            <h1>{currentEvent.title}</h1><p className="lede">{currentEvent.body}</p><div className="quote">「{currentEvent.quote}」<span>— {currentEvent.source}</span></div><p className="question">主要標的影響較強、可延續 {currentEvent.lensEffect.primaryDurationBonusMonths ? "2～3" : "1～2"} 季；{currentEvent.marketScope ? `${marketScopeLabel(currentEvent.marketScope)}也會受到較弱的 1 季擴散影響。` : "連動標的影響較弱且只維持 1 季。"}判讀後，再到券商 APP 自由買賣。</p><div className="choices">
               {currentChoices.map((choice, index) => {
                 const moneyHint = choiceMoneyHint(game, choice);
                 return <button key={choice.label} onClick={() => chooseEventOption(choice)}>
@@ -3608,7 +3671,7 @@ export default function Home() {
       {brokerOpen && game.gauges.health > 0 && <div className="broker-overlay" role="presentation">
         <section className="broker-app" role="dialog" aria-modal="true" aria-labelledby="broker-title">
           <header className="broker-header">
-            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>主要與連動情報分開判讀，買賣由你決定。</span></div>
+            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>{currentEvent?.marketScope ? `本次消息擴散至${marketScopeLabel(currentEvent.marketScope)}；` : "主要與連動情報分開判讀，"}買賣由你決定。</span></div>
             <button className="broker-finish" onClick={closeBrokerMonth}>{game.month < EVENTS_PER_SEASON - 1 ? `結束交易，進入本季第 ${game.month + 2} 次事件` : "結束交易並結算本季"} <span>→</span></button>
           </header>
           <div className="broker-metrics">
@@ -3619,10 +3682,13 @@ export default function Home() {
           </div>
           <div className="broker-intelligence">
             <span>本次情報</span>
-            <div className="broker-intelligence-targets">{currentEventIntel.length ? currentEventIntel.map((item) => <article className={`broker-intelligence-item broker-intelligence-${item.role}`} key={`${item.target.category}:${item.target.name}`}>
-              <div><em>{item.role === "primary" ? "主要標的" : "連動標的"}</em><b>{item.target.category} · 「{item.target.name}」</b><AssetQuoteLabel asset={item.target} game={game} />{item.signals.length > 0 && <i className={`broker-intel-summary signal-${item.summary.tone}`}>{item.summary.label} · {item.summary.detail}</i>}</div>
+            <div className="broker-intelligence-targets">{currentEventIntel.length ? <>{currentFocusedIntel.map((item) => <article className={`broker-intelligence-item broker-intelligence-${item.role}`} key={`${item.target.category}:${item.target.name}`}>
+              <div><em>{signalRoleLabel(item.role)}</em><b>{item.target.category} · 「{item.target.name}」</b><AssetQuoteLabel asset={item.target} game={game} />{item.signals.length > 0 && <i className={`broker-intel-summary signal-${item.summary.tone}`}>{item.summary.label} · {item.summary.detail}</i>}</div>
               <p>{item.record ? `${item.record.clue} ${item.record.durationLabel}${item.record.opportunityLabel ? `；${item.record.opportunityLabel}` : ""}` : "尚未取得本次判讀。"}</p>
-            </article>) : <p>沒有標的焦點；可以回到情報庫查看過去線索。</p>}</div>
+            </article>)}{currentMarketIntel.length > 0 && <article className="broker-intelligence-item broker-intelligence-market">
+              <div><em>市場擴散</em><b>{marketScopeLabel(currentEvent?.marketScope)} · {currentMarketIntel.length} 檔額外連動</b>{currentMarketSummary && <i className={`broker-intel-summary signal-${currentMarketSummary.tone}`}>{currentMarketSummary.label}</i>}</div>
+              <p>{currentMarketIntel.map((item) => `「${item.target.name}」`).join("、")}；各標的價格與情報徽章可在下方查看。</p>
+            </article>}</> : <p>沒有標的焦點；可以回到情報庫查看過去線索。</p>}</div>
           </div>
           {game.result && <details className={`broker-result-summary tone-${game.result.tone}`} open>
             <summary><span>{game.result.eyebrow}</span><b>{game.result.title}</b><i>展開／收合</i></summary>
