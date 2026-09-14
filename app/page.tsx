@@ -241,7 +241,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.7";
+const GAME_VERSION = "v1.0.8";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -1606,6 +1606,7 @@ export default function Home() {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [debtsOpen, setDebtsOpen] = useState(false);
   const [intelOpen, setIntelOpen] = useState(false);
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [intelView, setIntelView] = useState<"active" | "archive">("active");
   const [pendingReduction, setPendingReduction] = useState<Choice | null>(null);
   const [positionTradeTarget, setPositionTradeTarget] = useState<Position | null>(null);
@@ -1685,6 +1686,27 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!mobileProfileOpen) return;
+    const mobileViewport = window.matchMedia("(max-width: 900px)");
+    if (!mobileViewport.matches) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileProfileOpen(false);
+    };
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (!event.matches) setMobileProfileOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    mobileViewport.addEventListener("change", closeOnDesktop);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+      mobileViewport.removeEventListener("change", closeOnDesktop);
+    };
+  }, [mobileProfileOpen]);
+
+  useEffect(() => {
     analyticsLatestGame.current = game;
   }, [game]);
 
@@ -1722,6 +1744,7 @@ export default function Home() {
     setAssetsOpen(false);
     setDebtsOpen(false);
     setIntelOpen(false);
+    setMobileProfileOpen(false);
     setIntelView("active");
     setPendingReduction(null);
     setPositionTradeTarget(null);
@@ -3524,7 +3547,9 @@ export default function Home() {
       </header>
 
       <div className="layout">
-        <aside className="dashboard" id="financial-dashboard">
+        {mobileProfileOpen && <button className="mobile-profile-backdrop" type="button" aria-label="關閉角色資料" onClick={() => setMobileProfileOpen(false)} />}
+        <aside className={`dashboard ${mobileProfileOpen ? "mobile-profile-open" : ""}`} id="financial-dashboard" aria-label="角色資料">
+          <div className="mobile-profile-sheet-heading"><span><i />角色資料</span><button type="button" aria-label="關閉角色資料" onClick={() => setMobileProfileOpen(false)}>×</button></div>
           <div className="profile-heading"><div><p className="eyebrow">你的財務體質</p><h2>{game.name}</h2><p className="identity">{game.background} · {game.occupation ?? "無業"}</p></div><div className="trait-stack"><span className="trait" title={game.traitEffect}>{game.trait}</span>{game.specialTrait && <span className="trait special-trait" title={game.specialTraitEffect ?? undefined}>{game.specialTrait}</span>}</div></div>
           <div className="money-grid">
             <div><span>現金</span><b>{formatMoney(game.cash)}</b></div>
@@ -3559,7 +3584,7 @@ export default function Home() {
         </aside>
 
         <section className="stage">
-          <div className="mobile-snapshot" aria-label="財務與身心狀態摘要"><div><span>現金</span><b>{formatMoney(game.cash)}</b></div><div><span>淨資產</span><b className={netWorth(game) < 0 ? "negative" : ""}>{formatMoney(netWorth(game))}</b></div><div><span>健康</span><b>{game.gauges.health}</b></div><div><span>壓力</span><b>{game.gauges.stress}</b></div><a href="#financial-dashboard">查看完整狀態 ↓</a></div>
+          <div className="mobile-snapshot" aria-label="財務與身心狀態摘要"><div><span>現金</span><b>{formatMoney(game.cash)}</b></div><div><span>淨資產</span><b className={netWorth(game) < 0 ? "negative" : ""}>{formatMoney(netWorth(game))}</b></div><div><span>健康</span><b>{game.gauges.health}</b></div><div><span>壓力</span><b>{game.gauges.stress}</b></div><button type="button" className={`mobile-profile-trigger ${dashboardAlert ? "has-warning" : ""}`} aria-controls="financial-dashboard" aria-expanded={mobileProfileOpen} onClick={() => setMobileProfileOpen(true)}><span><b>角色資料</b><small>{game.name} · {game.occupation ?? "無業"}</small></span><em>{dashboardAlert ? "狀態需留意" : "查看全部"}<i>↑</i></em></button></div>
           <nav className="progress" aria-label="四季進度">
             {seasons.map((seasonName, index) => <span key={seasonName} className={game.phase === "season" && game.season === index ? "active" : game.phase === "summary" || game.phase === "ending" || (game.phase === "season" && game.season > index) ? "done" : ""}>{seasonName}季</span>)}
           </nav>

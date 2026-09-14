@@ -414,3 +414,99 @@ button:focus-visible{outline:3px solid rgba(111,125,247,.42);outline-offset:3px}
   .broker-actions>div>span{grid-column:1/-1;width:auto;font-size:8px}
   .broker-actions button{min-width:0;width:100%;padding:8px 2px;font-size:8px}
 }
+
+/* 手機角色資料冊頁：保留關鍵摘要，完整資料改為按需展開的底部面板。 */
+.mobile-profile-backdrop,.mobile-profile-sheet-heading{display:none}
+.mobile-profile-trigger{border:0;font:inherit;cursor:pointer}
+
+@media(max-width:900px){
+  .dashboard{display:none}
+  .dashboard.mobile-profile-open{
+    position:fixed;
+    z-index:73;
+    left:50%;
+    bottom:0;
+    display:block;
+    width:min(680px,100%);
+    max-height:min(88dvh,760px);
+    margin:0;
+    padding:12px 20px calc(24px + env(safe-area-inset-bottom,0px));
+    overflow-y:auto;
+    border:1px solid #343c62;
+    border-bottom:0;
+    border-radius:24px 24px 0 0;
+    background:linear-gradient(155deg,rgba(25,30,49,.99),rgba(12,16,28,.99));
+    box-shadow:0 -24px 80px rgba(0,0,0,.58);
+    transform:translateX(-50%);
+    animation:mobile-profile-sheet-in .24s cubic-bezier(.22,.75,.24,1);
+    scrollbar-gutter:stable;
+  }
+  .mobile-profile-backdrop{
+    position:fixed;
+    z-index:72;
+    inset:0;
+    display:block;
+    width:100%;
+    height:100%;
+    padding:0;
+    border:0;
+    background:rgba(3,6,13,.72);
+    backdrop-filter:blur(4px);
+    cursor:pointer;
+    animation:mobile-profile-backdrop-in .18s ease-out;
+  }
+  .mobile-profile-sheet-heading{
+    position:sticky;
+    z-index:3;
+    top:-12px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin:0 -8px 19px;
+    padding:12px 8px 11px;
+    border-bottom:1px solid rgba(71,80,124,.7);
+    background:rgba(20,25,42,.94);
+    backdrop-filter:blur(14px);
+  }
+  .mobile-profile-sheet-heading>span{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:900;letter-spacing:.08em}
+  .mobile-profile-sheet-heading>span>i{display:block;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(67,220,192,.1)}
+  .mobile-profile-sheet-heading>button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid #3a4268;border-radius:50%;background:#111624;color:#cdd3e6;font-size:23px;line-height:1;cursor:pointer}
+  .mobile-profile-trigger{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;
+    gap:10px;
+    min-width:150px;
+    height:100%;
+    padding:9px 11px;
+    background:#111624;
+    color:var(--ink);
+    text-align:left;
+  }
+  .mobile-profile-trigger>span,.mobile-profile-trigger>span>b,.mobile-profile-trigger>span>small{display:block;min-width:0}
+  .mobile-profile-trigger>span>b{font-size:11px}
+  .mobile-profile-trigger>span>small{overflow:hidden;margin-top:4px;color:var(--muted);font-size:8px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+  .mobile-profile-trigger>em{display:flex;align-items:center;gap:7px;color:var(--green);font-size:9px;font-style:normal;font-weight:900;white-space:nowrap}
+  .mobile-profile-trigger>em>i{display:grid;place-items:center;width:22px;height:22px;border:1px solid rgba(67,220,192,.38);border-radius:50%;background:rgba(67,220,192,.08);font-size:11px;font-style:normal}
+  .mobile-profile-trigger.has-warning>em{color:var(--gold)}
+  .mobile-profile-trigger.has-warning>em>i{border-color:rgba(245,196,91,.42);background:rgba(245,196,91,.1)}
+}
+
+@media(max-width:620px){
+  .mobile-snapshot{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .mobile-profile-trigger{grid-column:1/-1;min-height:54px;border-top:1px solid var(--line)}
+  .dashboard.mobile-profile-open{max-height:90dvh;padding:10px 16px calc(20px + env(safe-area-inset-bottom,0px));border-radius:22px 22px 0 0}
+  .mobile-profile-sheet-heading{top:-10px;margin:0 -5px 17px;padding:10px 5px}
+  .dashboard.mobile-profile-open .profile-heading .eyebrow{display:block}
+  .dashboard.mobile-profile-open .identity{margin-bottom:0}
+  .dashboard.mobile-profile-open .money-grid{margin-top:16px}
+  .dashboard.mobile-profile-open .gauge-list{margin:17px 0}
+}
+
+@keyframes mobile-profile-sheet-in{from{opacity:0;transform:translate(-50%,32px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes mobile-profile-backdrop-in{from{opacity:0}to{opacity:1}}
+
+@media(prefers-reduced-motion:reduce){
+  .dashboard.mobile-profile-open,.mobile-profile-backdrop{animation:none}
+}
