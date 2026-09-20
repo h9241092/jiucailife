@@ -8,7 +8,6 @@ const INTEL_EFFECTS = {
   tech: { research: { knowledge: 5, stress: 1 }, observe: { knowledge: 1, stress: 0 }, trend: { cash: 7000, knowledge: 0, stress: 6 } },
   market: { research: { knowledge: 4, stress: 1 }, observe: { knowledge: 1, stress: -1 }, trend: { cash: 6000, knowledge: 0, stress: 5 } },
   crypto: { research: { knowledge: 5, stress: 2 }, observe: { knowledge: 2, stress: 1 }, trend: { cash: 8000, knowledge: 0, stress: 8 } },
-  housing: { research: { knowledge: 3, stress: 0 }, observe: { knowledge: 1, stress: -2 }, trend: { cash: 5000, knowledge: 0, stress: 4 } },
   career: { research: { knowledge: 3, stress: -1 }, observe: { knowledge: 1, stress: -2 }, trend: { cash: 5000, knowledge: 0, stress: 4 } },
   macro: { research: { knowledge: 4, stress: 1 }, observe: { knowledge: 2, stress: -1 }, trend: { cash: 6000, knowledge: 0, stress: 6 } },
   meme: { research: { knowledge: 4, stress: 0 }, observe: { knowledge: 1, stress: -2 }, trend: { cash: 9000, knowledge: 0, stress: 9 } },

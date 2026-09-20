@@ -57,7 +57,6 @@ const INTEL_EFFECTS = {
   tech: { research: { knowledge: 5, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -1, health: 1 }, trend: { cash: 28000, knowledge: -2, stress: 2, health: -1 } },
   market: { research: { knowledge: 4, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -1, health: 1 }, trend: { cash: 24000, knowledge: -1, stress: 2, health: -1 } },
   crypto: { research: { knowledge: 5, stress: 2, health: -1 }, observe: { knowledge: 2, stress: -1, health: 1 }, trend: { cash: 36000, knowledge: -2, stress: 3, health: -1, credit: -1 } },
-  housing: { research: { knowledge: 3, stress: 1, health: -1, credit: 1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 20000, knowledge: -1, stress: 1, health: -1 } },
   career: { research: { knowledge: 3, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 20000, knowledge: -1, stress: 1, health: -1 } },
   macro: { research: { knowledge: 4, stress: 1, health: -1 }, observe: { knowledge: 2, stress: -1, health: 2 }, trend: { cash: 24000, knowledge: -1, stress: 2, health: -1 } },
   meme: { research: { knowledge: 4, stress: 1, health: -1, credit: 1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 40000, knowledge: -2, stress: 4, health: -1, credit: -1 } },

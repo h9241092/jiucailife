@@ -12,9 +12,7 @@ type Position = {
   name: string;
   cost: number;
   value: number;
-  unit?: number;
   loan?: number;
-  mortgageMonthsRemaining?: number;
   declineStreak?: number;
   bearQuarters?: number;
   bearTriggered?: boolean;
@@ -135,7 +133,6 @@ type IllnessEvent = { id: string; severity: IllnessSeverity; title: string; body
 type IllnessChoice = "push" | "treat" | "family";
 type IllnessNotice = { tone: "good" | "flat" | "bad"; title: string; body: string; deltas: string[] };
 type PositionTradeNotice = { title: string; body: string; deltas: string[] };
-type PropertyReview = { event: GameEvent; targetId: string };
 type BrokerAsset = { category: string; name: string };
 type EventTarget = BrokerAsset & { role: SignalRole };
 type AchievementStats = {
@@ -225,8 +222,6 @@ type Game = {
   earlyRetirementQualified: boolean;
   achievementStats: AchievementStats;
   eventOrder: number[];
-  propertyReviewNextMonth: number | null;
-  propertyReviewSeen: string[];
 };
 
 const seasons = ["春", "夏", "秋", "冬"];
@@ -310,21 +305,9 @@ function dailyMoveDetail(category: string, movement: DailyCompoundedMove) {
 const QUARTER_SURPRISE_CHANCE = .25;
 const FINANCIAL_FAILURE_NET_WORTH = -500000;
 const EARLY_RETIREMENT_TARGET = 30000000;
-const RENTAL_PROPERTY_NAME = "蛋黃收租小金庫";
-const RENTAL_PROPERTY_PRICE = 10000000;
-const HOME_PROPERTY_PRICE = 18000000;
-const FIRST_PROPERTY_DOWN_PAYMENT_RATE = .2;
-const ADDITIONAL_PROPERTY_DOWN_PAYMENT_RATE = .4;
-const MAX_MORTGAGE_AMOUNT = 10000000;
-const MORTGAGE_INTEREST_RATE = .042;
-const MORTGAGE_TERM_YEARS = 40;
-const MORTGAGE_TERM_MONTHS = MORTGAGE_TERM_YEARS * 12;
 const GENERAL_INTEREST_RATE = .06;
 const CREDIT_LOAN_MAX = 1000000;
 const CREDIT_LOAN_TERM_MONTHS = 60;
-const RENTAL_YIELD = .018;
-const PROPERTY_HOLDING_COST_RATE = .004;
-const OWNER_HOUSING_SAVINGS = 96000;
 const BROKER_BUY_FEE_RATE = .001425;
 const brokerSellFeeRate = (category: string) => category === "ETF" ? .001 : category === "加密貨幣" ? .0015 : .003;
 const brokerCategoryOrder = ["台股", "ETF", "美股", "加密貨幣"];
@@ -652,26 +635,8 @@ const addKnowledge = (gauges: GaugeStats, baseGain: number) => {
   gauges.knowledge = clamp(gauges.knowledge + gain);
   return gain;
 };
-const propertyUnitPrice = (assetName?: string) => assetName === RENTAL_PROPERTY_NAME ? RENTAL_PROPERTY_PRICE : HOME_PROPERTY_PRICE;
-const propertyDownPaymentRate = (assets: Position[]) => assets.some((asset) => asset.category === "房地產") ? ADDITIONAL_PROPERTY_DOWN_PAYMENT_RATE : FIRST_PROPERTY_DOWN_PAYMENT_RATE;
-const maximumPropertyMortgage = (game: Pick<Game, "assets">, assetName?: string) => Math.min(
-  MAX_MORTGAGE_AMOUNT,
-  Math.round(propertyUnitPrice(assetName) * (1 - propertyDownPaymentRate(game.assets))),
-);
-const propertyDownPayment = (game: Pick<Game, "assets">, assetName?: string) => propertyUnitPrice(assetName) - maximumPropertyMortgage(game, assetName);
 const LIFE_EVENT_SLOT_COUNT = LIFE_YEAR_COUNT * EVENTS_PER_YEAR;
 const freshEventOrder = () => Array.from({ length: LIFE_EVENT_SLOT_COUNT }, (_, index) => index);
-const propertyChoicesOf = (event: GameEvent) => event.choices.filter((choice) => choice.action === "buy" && choice.asset?.category === "房地產");
-const canShowPropertyEvent = (game: Pick<Game, "cash" | "assets">, event: GameEvent) => {
-  const propertyChoices = propertyChoicesOf(event);
-  if (!propertyChoices.length) return true;
-  // 持有房產後，房市消息改由每六個月的額外房務事件處理，不占用每月市場題目。
-  if (game.assets.some((asset) => asset.category === "房地產")) return false;
-  return propertyChoices.some((choice) => {
-    const price = propertyUnitPrice(choice.asset?.name);
-    return game.cash + maximumPropertyMortgage(game, choice.asset?.name) >= price;
-  });
-};
 type EventSelection = { event: GameEvent | null; order: number[]; needsCommit: boolean };
 const selectAffordableCurrentEvent = (game: Game, deck: GameEvent[]): EventSelection => {
   const orderIsValid = game.eventOrder?.length === deck.length;
@@ -680,77 +645,9 @@ const selectAffordableCurrentEvent = (game: Game, deck: GameEvent[]): EventSelec
   const current = deck[order[slot]] ?? null;
   return { event: current, order, needsCommit: !orderIsValid };
 };
-const mortgageDebtOf = (assets: Position[]) => assets
-  .filter((asset) => asset.category === "房地產")
-  .reduce((sum, asset) => sum + (asset.loan ?? 0), 0);
-const monthlyMortgagePayment = (principal: number, monthsRemaining = MORTGAGE_TERM_MONTHS) => {
-  if (principal <= 0) return 0;
-  const monthlyRate = MORTGAGE_INTEREST_RATE / 12;
-  const months = Math.max(1, monthsRemaining);
-  const growth = Math.pow(1 + monthlyRate, months);
-  return principal * monthlyRate * growth / Math.max(growth - 1, Number.EPSILON);
-};
-type MortgageServiceResult = {
-  assets: Position[];
-  cash: number;
-  principalPaid: number;
-  interestPaid: number;
-  interestCapitalized: number;
-  paymentDue: number;
-  paymentPaid: number;
-};
-const serviceAnnualMortgages = (assets: Position[], availableCash: number): MortgageServiceResult => {
-  let cash = Math.max(0, availableCash);
-  let principalPaid = 0;
-  let interestPaid = 0;
-  let interestCapitalized = 0;
-  let paymentDue = 0;
-  let paymentPaid = 0;
-  const monthlyRate = MORTGAGE_INTEREST_RATE / 12;
-
-  const servicedAssets = assets.map((asset) => {
-    if (asset.category !== "房地產" || (asset.loan ?? 0) <= 0) return asset;
-    let balance = asset.loan ?? 0;
-    let monthsRemaining = Math.max(1, asset.mortgageMonthsRemaining ?? MORTGAGE_TERM_MONTHS);
-    const scheduledMonthlyPayment = monthlyMortgagePayment(balance, monthsRemaining);
-
-    for (let month = 0; month < 12 && balance > 0; month += 1) {
-      const interestDue = balance * monthlyRate;
-      const scheduledDue = Math.min(balance + interestDue, scheduledMonthlyPayment);
-      const paid = Math.min(cash, scheduledDue);
-      const paidInterest = Math.min(paid, interestDue);
-      const paidPrincipal = Math.max(0, paid - paidInterest);
-      const capitalizedInterest = Math.max(0, interestDue - paidInterest);
-      balance = Math.max(0, balance - paidPrincipal + capitalizedInterest);
-      cash -= paid;
-      principalPaid += paidPrincipal;
-      interestPaid += paidInterest;
-      interestCapitalized += capitalizedInterest;
-      paymentDue += scheduledDue;
-      paymentPaid += paid;
-      monthsRemaining = Math.max(0, monthsRemaining - 1);
-    }
-
-    return { ...asset, loan: balance, mortgageMonthsRemaining: balance > 0 ? monthsRemaining : 0 };
-  });
-
-  return { assets: servicedAssets, cash, principalPaid, interestPaid, interestCapitalized, paymentDue, paymentPaid };
-};
 const leverageDebtOf = (assets: Position[]) => assets
-  .filter((asset) => asset.category !== "房地產")
   .reduce((sum, asset) => sum + (asset.loan ?? 0), 0);
-const investableNetWorth = (game: Pick<Game, "cash" | "debt" | "assets">) => {
-  const nonPropertyAssets = game.assets.filter((asset) => asset.category !== "房地產").reduce((sum, asset) => sum + asset.value, 0);
-  const nonMortgageDebt = Math.max(0, game.debt - mortgageDebtOf(game.assets));
-  return game.cash + nonPropertyAssets - nonMortgageDebt;
-};
-const annualPropertyCashflow = (assets: Position[]) => {
-  const properties = assets.filter((asset) => asset.category === "房地產");
-  const rent = properties.filter((asset) => asset.name === RENTAL_PROPERTY_NAME).reduce((sum, asset) => sum + asset.value * RENTAL_YIELD, 0);
-  const housingSavings = properties.some((asset) => asset.name !== RENTAL_PROPERTY_NAME) ? OWNER_HOUSING_SAVINGS : 0;
-  const holdingCost = properties.reduce((sum, asset) => sum + asset.value * PROPERTY_HOLDING_COST_RATE, 0);
-  return Math.round(rent + housingSavings - holdingCost);
-};
+const investableNetWorth = (game: Pick<Game, "cash" | "debt" | "assets">) => game.cash + game.assets.reduce((sum, asset) => sum + asset.value, 0) - game.debt;
 const creditLoanLimit = (game: Pick<Game, "income" | "gauges">) => {
   const incomeWeight = game.income * 1.2;
   const creditWeight = game.gauges.credit * 4000;
@@ -899,13 +796,11 @@ const choiceMoneyHint = (game: Game, choice: Choice) => {
     const amount = Math.min(Math.max(0, game.cash), Math.max(3000, game.cash * (choice.ratio ?? .2)));
     return `預計投入 ${formatMoney(amount)}`;
   }
-  if (choice.action === "buy") return `自備款 ${formatMoney(propertyDownPayment(game, choice.asset?.name))}`;
   if (choice.action === "learn") return `查證支出 −${formatMoney(choice.intelAction === "research" ? INTEL_RESEARCH_COST : LEARNING_COST).replace("NT$ ", "")}`;
   if (choice.action === "work") return choice.intelAction === "trend" ? `KOL 流量收入 +${formatMoney(choice.intelEffects?.cash ?? 6000).replace("NT$ ", "")}` : `即時收入約 ${formatMoney(Math.max(8000, Math.round(game.income * .075 / 1000) * 1000))}`;
   if (choice.action === "family") return `家庭支出最多 ${formatMoney(Math.min(Math.max(0, game.cash), 8000))}`;
   if (choice.action === "wait" || choice.action === "hold") return "不動用現金";
   if (choice.action === "reduce") return game.specialTrait === "紙手體質" ? "直接全部清倉" : "再選減碼 50% 或全清";
-  if (choice.action === "sell") return "整間出售並清償房貸";
   return null;
 };
 const gaugeHint = (key: GaugeKey) => key === "health"
@@ -1003,7 +898,6 @@ const intelChoiceCopy: Record<GameEvent["kind"], { research: string; observe: st
   tech: { research: "熬夜查產品、訂單與供應鏈", observe: "關掉盤面，休息後再觀察科技題材", trend: "連夜把新科技剪成熱門短影音" },
   market: { research: "熬夜查公告、籌碼與歷史走勢", observe: "先去運動，晚點再看市場反應", trend: "趕稿跟上財經話題搶流量" },
   crypto: { research: "熬夜查鏈上資料與資金來源", observe: "關掉報價，睡一晚再看幣圈", trend: "連夜轉貼幣圈熱帖搶流量" },
-  housing: { research: "熬夜查成交、利率與貸款條件", observe: "先休息，之後再看房市量價", trend: "趕著把房市焦慮做成熱門內容" },
   career: { research: "熬夜查政策與產業數據", observe: "先健身休息，再看工作市場反應", trend: "連夜把職場話題做成流量" },
   macro: { research: "熬夜查政策原文與總經數據", observe: "先離開盤面，等市場走出方向", trend: "趕寫政策解讀搶第一波流量" },
   meme: { research: "熬夜查原始消息與喊單紀錄", observe: "關掉社群休息，看迷因能撐幾天", trend: "連夜把迷因加工成流量密碼" },
@@ -1013,7 +907,6 @@ const intelEffectsByKind: Record<EventKind, { research: IntelChoiceEffects; obse
   tech: { research: { knowledge: 5, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -1, health: 1 }, trend: { cash: 28000, knowledge: -2, stress: 2, health: -1 } },
   market: { research: { knowledge: 4, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -1, health: 1 }, trend: { cash: 24000, knowledge: -1, stress: 2, health: -1 } },
   crypto: { research: { knowledge: 5, stress: 2, health: -1 }, observe: { knowledge: 2, stress: -1, health: 1 }, trend: { cash: 36000, knowledge: -2, stress: 3, health: -1, credit: -1 } },
-  housing: { research: { knowledge: 3, stress: 1, health: -1, credit: 1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 20000, knowledge: -1, stress: 1, health: -1 } },
   career: { research: { knowledge: 3, stress: 1, health: -1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 20000, knowledge: -1, stress: 1, health: -1 } },
   macro: { research: { knowledge: 4, stress: 1, health: -1 }, observe: { knowledge: 2, stress: -1, health: 2 }, trend: { cash: 24000, knowledge: -1, stress: 2, health: -1 } },
   meme: { research: { knowledge: 4, stress: 1, health: -1, credit: 1 }, observe: { knowledge: 1, stress: -2, health: 2 }, trend: { cash: 40000, knowledge: -2, stress: 4, health: -1, credit: -1 } },
@@ -1328,17 +1221,10 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
     result: null, annualStartNet: startingCash, annualMarketMove: 0, quarterMarketMove: 0, annualSummary: null, wealthHistory: [{ age: STARTING_AGE, netWorth: startingCash }], history: [], surpriseSeen: [], familyEventSeen: [], illnessSeen: [], illnessCooldown: 0,
     activeSignals: [], intelRecords: [], marketQuotes: initialMarketQuotes(),
     age31InvestableNet: null, earlyRetirementQualified: false, achievementStats: blankAchievementStats(), eventOrder: freshEventOrder(),
-    propertyReviewNextMonth: null, propertyReviewSeen: [],
   };
 }
 
 function addPosition(assets: Position[], next: Position) {
-  if (next.category === "房地產") {
-    const nextUnit = assets
-      .filter((asset) => asset.category === "房地產")
-      .reduce((highest, asset) => Math.max(highest, asset.unit ?? 0), 0) + 1;
-    return [...assets, { ...next, unit: nextUnit }];
-  }
   const found = assets.find((asset) => asset.name === next.name);
   if (!found) return [...assets, next];
   return assets.map((asset) => asset.name === next.name ? { ...asset, cost: asset.cost + next.cost, value: asset.value + next.value, loan: (asset.loan ?? 0) + (next.loan ?? 0) } : asset);
@@ -1358,7 +1244,7 @@ function createQuarterSurprise(game: Game, random: RandomSource): QuarterSurpris
   const unused = candidates.filter((candidate) => !game.surpriseSeen.includes(candidate.id));
   const selected = (unused.length ? unused : candidates)[Math.floor(random() * (unused.length || candidates.length))];
   const position = game.assets[Math.floor(random() * game.assets.length)];
-  const watchCandidates = brokerCatalog.filter((asset) => asset.category !== "房地產");
+  const watchCandidates = brokerCatalog;
   const watchTarget = position ? null : watchCandidates[Math.floor(random() * watchCandidates.length)];
   const targetName = position?.name ?? watchTarget?.name ?? "整體市場";
   const targetCategory = position?.category ?? watchTarget?.category ?? "市場觀望";
@@ -1387,8 +1273,8 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
   marketAssets.forEach((asset) => {
     const key = marketQuoteKey(asset);
     const currentQuote = quoteSource[key] ?? initialMarketQuote(asset);
-    const volatility = asset.category === "期貨" ? .13 : asset.category === "加密貨幣" ? .11 : asset.category === "房地產" ? .008 : .04;
-    const baseDownChance = ["期貨", "加密貨幣"].includes(asset.category) ? .5 : asset.category === "房地產" ? .42 : .47;
+    const volatility = asset.category === "期貨" ? .13 : asset.category === "加密貨幣" ? .11 : .04;
+    const baseDownChance = ["期貨", "加密貨幣"].includes(asset.category) ? .5 : .47;
     const relevantSignals = signals
       .filter((signal) => signal.targetCategory === asset.category && signal.targetName === asset.name && signal.remainingMonths > 0);
     const signalPressure = relevantSignals
@@ -1409,9 +1295,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
       : null;
     const baseRate = dailyMovement
       ? Math.abs(dailyMovement.moveRate) / multiplier
-      : asset.category === "房地產"
-        ? intendedDeclined ? .001 + random() * volatility : .001 + random() * volatility * .85
-        : intendedDeclined ? .006 + random() * volatility : .005 + random() * volatility * .85;
+      : intendedDeclined ? .006 + random() * volatility : .005 + random() * volatility * .85;
     const rawMoveRate = dailyMovement?.moveRate ?? (intendedDeclined ? -1 : 1) * baseRate * multiplier;
     const moveRate = applyAssetReturnLimits(asset.category, rawMoveRate);
     const declined = moveRate < 0;
@@ -1513,72 +1397,6 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
   return { assets: movedAssets, marketQuotes: nextMarketQuotes, marketMove, surpriseImpact };
 }
 
-function choicesForHolding(event: GameEvent, position: Position): Choice[] {
-  const relatedChoice = event.choices.find((choice) => choice.asset?.name === position.name);
-  const asset = { category: position.category, name: position.name };
-  if (position.category === "房地產") {
-    const unitLabel = `第${position.unit ?? 1}間${position.name}`;
-    return [
-      {
-        label: `繼續持有${unitLabel}`,
-        desc: "不交易，讓這一間房完整承受房市消息與年度價格波動。",
-        action: "hold",
-        risk: "steady",
-        minR: 1,
-        asset,
-        positionId: position.id,
-      },
-      {
-        label: `再買一間${position.name}`,
-        desc: "購入另一間獨立物件，另外計算房價、自備款、房貸與損益。",
-        action: "buy",
-        risk: relatedChoice?.risk === "bold" ? "bold" : "steady",
-        minR: relatedChoice?.minR ?? 3,
-        asset,
-      },
-      {
-        label: `賣掉${unitLabel}`,
-        desc: "整間出售，以售價清償這一間房的剩餘房貸。",
-        action: "sell",
-        risk: "safe",
-        minR: 1,
-        asset,
-        positionId: position.id,
-      },
-    ];
-  }
-  return [
-    {
-      label: `維持${position.name}倉位`,
-      desc: "不交易，讓既有部位完整承受這則消息帶來的波動。",
-      action: "hold",
-      risk: "steady",
-      minR: 1,
-      asset,
-      positionId: position.id,
-    },
-    {
-      label: `加倉${position.name}`,
-      desc: "再投入約四分之一現金，放大判斷正確與錯誤的結果。",
-      action: "invest",
-      risk: relatedChoice?.risk === "bold" ? "bold" : "steady",
-      minR: relatedChoice?.minR ?? 2,
-      ratio: .25,
-      asset,
-    },
-    {
-      label: `減倉${position.name}`,
-      desc: "賣出目前部位的一半，把部分帳面損益換回現金。",
-      action: "reduce",
-      risk: "safe",
-      minR: 1,
-      ratio: .5,
-      asset,
-      positionId: position.id,
-    },
-  ];
-}
-
 function titleForEnding(game: Game) {
   const net = netWorth(game);
   if (game.gauges.health <= 0) return ["健康破產", "市場還沒收盤，身體先替你強制平倉。人生不等下一季，也不接受展期。"];
@@ -1613,7 +1431,6 @@ export default function Home() {
   const [positionTradeNotice, setPositionTradeNotice] = useState<PositionTradeNotice | null>(null);
   const [quarterSurprise, setQuarterSurprise] = useState<QuarterSurprise | null>(null);
   const [debtAction, setDebtAction] = useState<DebtAction | null>(null);
-  const [mortgageTargetId, setMortgageTargetId] = useState<string | null>(null);
   const [debtNotice, setDebtNotice] = useState<DebtNotice | null>(null);
   const [incomeNotice, setIncomeNotice] = useState<IncomeNotice | null>(null);
   const [familyEvent, setFamilyEvent] = useState<FamilyEvent | null>(null);
@@ -1621,8 +1438,6 @@ export default function Home() {
   const [illnessNotice, setIllnessNotice] = useState<IllnessNotice | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
-  const [propertyReview, setPropertyReview] = useState<PropertyReview | null>(null);
-  const [propertyReviewResolving, setPropertyReviewResolving] = useState(false);
   const [brokerOpen, setBrokerOpen] = useState(false);
   const [brokerCategory, setBrokerCategory] = useState("台股");
   const [brokerNotice, setBrokerNotice] = useState<string | null>(null);
@@ -1751,15 +1566,12 @@ export default function Home() {
     setPositionTradeNotice(null);
     setQuarterSurprise(null);
     setDebtAction(null);
-    setMortgageTargetId(null);
     setDebtNotice(null);
     setIncomeNotice(null);
     setFamilyEvent(null);
     setIllnessEvent(null);
     setIllnessNotice(null);
     setHistoryOpen(false);
-    setPropertyReview(null);
-    setPropertyReviewResolving(false);
     setBrokerOpen(false);
     setBrokerNotice(null);
     setQuarterReport(null);
@@ -1798,7 +1610,7 @@ export default function Home() {
   }, [currentEventSelection]);
   useEffect(() => {
     if (!game || !currentEvent || game.phase !== "season" || game.result || game.lastIncomeChoiceYear !== game.year
-      || propertyReview || quarterSurprise || quarterReport || incomeNotice || familyEvent || illnessEvent || debtAction || positionTradeTarget || brokerOpen) return;
+      || quarterSurprise || quarterReport || incomeNotice || familyEvent || illnessEvent || debtAction || positionTradeTarget || brokerOpen) return;
     const presentationKey = `${game.year}:${game.season}:${game.month}:${currentEvent.id}`;
     if (lastPresentedEvent.current === presentationKey) return;
     lastPresentedEvent.current = presentationKey;
@@ -1812,51 +1624,16 @@ export default function Home() {
       marketScope: currentEvent.marketScope ?? null,
       affectedTargets: targets.map((target) => `${target.category}:${target.name}`),
     }, game);
-  }, [game?.year, game?.season, game?.month, game?.phase, game?.result, game?.lastIncomeChoiceYear, currentEvent?.id, propertyReview, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, positionTradeTarget, brokerOpen]);
-  useEffect(() => {
-    if (!game || game.phase !== "season" || game.gauges.health <= 0 || game.result || propertyReview || propertyReviewResolving
-      || quarterSurprise || quarterReport || incomeNotice || familyEvent || illnessEvent || debtAction || positionTradeTarget || brokerOpen
-      || game.lastIncomeChoiceYear !== game.year) return;
-
-    const properties = game.assets.filter((asset) => asset.category === "房地產");
-    if (!properties.length) {
-      if (game.propertyReviewNextMonth !== null || game.propertyReviewSeen.length) {
-        setGame((current) => current ? { ...current, propertyReviewNextMonth: null, propertyReviewSeen: [] } : current);
-      }
-      return;
-    }
-
-    const currentMonth = absoluteMonthIndex(game);
-    if (game.propertyReviewNextMonth === null) {
-      setGame((current) => current ? { ...current, propertyReviewNextMonth: currentMonth + 6 } : current);
-      return;
-    }
-    if (currentMonth < game.propertyReviewNextMonth) return;
-
-    const propertyRandom = createGameRandom(game, `property-review:${currentMonth}`);
-    const target = properties[Math.floor(propertyRandom() * properties.length)];
-    const matchingEvents = lifeEvents.filter((event) => event.kind === "housing" && event.choices.some((choice) => choice.asset?.name === target.name));
-    const unseenEvents = matchingEvents.filter((event) => !game.propertyReviewSeen.includes(event.id));
-    const pool = unseenEvents.length ? unseenEvents : matchingEvents;
-    const event = pool[Math.floor(propertyRandom() * pool.length)];
-    if (!event) return;
-    const nextSeen = unseenEvents.length ? [...game.propertyReviewSeen, event.id] : [event.id];
-
-    setGame((current) => current ? { ...current, propertyReviewNextMonth: currentMonth + 6, propertyReviewSeen: nextSeen } : current);
-    setPropertyReview({ event, targetId: target.id });
-  }, [game, propertyReview, propertyReviewResolving, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, positionTradeTarget, brokerOpen]);
+  }, [game?.year, game?.season, game?.month, game?.phase, game?.result, game?.lastIncomeChoiceYear, currentEvent?.id, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, positionTradeTarget, brokerOpen]);
   const currentEventTargets = currentEvent ? eventTargetsForEvent(currentEvent) : [];
   const currentEventTarget = currentEventTargets[0];
   const currentAdvisorSignal = currentEvent ? advisorSignalForEvent(currentEvent) : null;
   const currentChoices = currentEvent ? lifeChoicesForEvent(currentEvent) : [];
-  const propertyReviewPosition = game && propertyReview ? game.assets.find((asset) => asset.id === propertyReview.targetId) : undefined;
-  const propertyReviewChoices = propertyReview ? lifeChoicesForEvent(propertyReview.event) : [];
   const totalAssets = game?.assets.reduce((sum, asset) => sum + asset.value, 0) ?? 0;
 
-  function resolveChoice(choice: Choice, reductionRatio?: number, eventContext?: GameEvent) {
+  function resolveChoice(choice: Choice, reductionRatio?: number) {
     if (!game) return;
-    if (choice.action === "buy" && game.cash < propertyDownPayment(game, choice.asset?.name)) return;
-    const sourceEvent = eventContext ?? currentEvent;
+    const sourceEvent = currentEvent;
     const random = createGameRandom(game, `choice:${sourceEvent?.id ?? "unknown"}:${choice.action}:${reductionRatio ?? choice.ratio ?? "default"}`);
     const next: Game = { ...game, gauges: { ...game.gauges }, assets: [...game.assets] };
     let resolution: Resolution;
@@ -1914,33 +1691,6 @@ export default function Home() {
       resolution = isIntelObserve
         ? { tone: "flat", eyebrow: "休息觀察", title: "你沒有追著消息跑，先把身體顧回來。", body: "關掉盤面、睡一覺或去運動；市場繼續波動，你的健康則恢復了一點。", detail: "觀察不花現金，能降低壓力並恢復健康；代價是情報較模糊，判讀精確度仍取決於投資知識。", deltas: ["現金不變", `壓力 ${signedStat(intelEffects.stress)}`, `投資知識 +${gain}`, ...(intelEffects.health ? [`健康 ${signedStat(intelEffects.health)}`] : []), ...(intelEffects.credit ? [`信用 ${signedStat(intelEffects.credit)}`] : [])] }
         : { tone: "flat", eyebrow: "持有現金", title: "什麼都沒買。市場也沒有因此停止。", body: "你保留了選擇空間——不是會歸零的商品，而是真的可以晚點再決定。", detail: "現金沒有帳面波動，也會承受錯過行情與通膨的代價。", deltas: ["壓力 −2", `投資知識 +${gain}`, "健康 +1"] };
-    } else if (choice.action === "buy") {
-      if (!choice.asset || choice.asset.category !== "房地產") return;
-      const price = propertyUnitPrice(choice.asset.name);
-      const downPayment = propertyDownPayment(next, choice.asset.name);
-      const mortgage = price - downPayment;
-      const baseChance = choice.risk === "bold" ? .34 : .5;
-      const goodChance = clamp(baseChance + next.gauges.knowledge * .002 + (next.gauges.credit - 50) * .0015, .18, .8);
-      const roll = random();
-      const outcome = roll < goodChance ? "good" : roll < goodChance + .25 ? "flat" : "bad";
-      const returnRate = outcome === "good" ? .01 + random() * .03 : outcome === "flat" ? -.008 + random() * .016 : -.02 - random() * .04;
-      const value = Math.max(0, price * (1 + returnRate));
-      next.cash -= downPayment;
-      next.debt += mortgage;
-      next.assets = addPosition(next.assets, { id: deterministicPositionId(next, "property", choice.asset.name), category: "房地產", name: choice.asset.name, cost: price, value, loan: mortgage, mortgageMonthsRemaining: MORTGAGE_TERM_MONTHS });
-      if (next.propertyReviewNextMonth === null) next.propertyReviewNextMonth = absoluteMonthIndex(next) + 6;
-      addKnowledge(next.gauges, outcome === "bad" ? 5 : 2);
-      next.gauges.stress = clamp(next.gauges.stress + (outcome === "bad" ? 12 : outcome === "good" ? 2 : 6));
-      if (outcome === "bad") next.gauges.credit = clamp(next.gauges.credit - 2);
-      const priceMove = value - price;
-      resolution = {
-        tone: outcome,
-        eyebrow: "房地產 · 單間成交",
-        title: outcome === "good" ? "你買下一間房，成交後行情先送來一點掌聲。" : outcome === "flat" ? "你買下一間房，價格暫時在原地整理。" : "你買下一間房，交屋後才發現市場正在降溫。",
-        body: `${choice.asset.name} 以一間為單位列入資產，不會與其他房產合併。`,
-        detail: `單間成交價 ${formatMoney(price)}，自備款 ${formatMoney(downPayment)}，新增房貸 ${formatMoney(mortgage)}。房貸採 40 年期、年利率 4.2% 本息攤還，預估每月約 ${formatMoney(monthlyMortgagePayment(mortgage))}；遊戲會在年度結算彙總扣款。本次好結果機率約 ${Math.round(goodChance * 100)}%。`,
-        deltas: [`自備款 −${formatMoney(downPayment).replace("NT$ ", "")}`, `房地產 +1 間`, `負債 +${formatMoney(mortgage).replace("NT$ ", "")}`, `房價變動 ${priceMove >= 0 ? "+" : "−"}${formatMoney(Math.abs(priceMove)).replace("NT$ ", "")}`],
-      };
     } else if (choice.action === "hold") {
       const positionIndex = next.assets.findIndex((asset) => choice.positionId ? asset.id === choice.positionId : asset.name === choice.asset?.name);
       if (positionIndex < 0) return;
@@ -1951,9 +1701,7 @@ export default function Home() {
       const dailyMovement = isDailyCompoundedAsset(position.category)
         ? createDailyCompoundedMove(position.category, outcome === "bad" ? true : outcome === "good" ? false : null, outcome === "flat" ? .35 : 1, random)
         : null;
-      const rawReturnRate = dailyMovement?.moveRate ?? (position.category === "房地產"
-        ? outcome === "good" ? .01 + random() * .03 : outcome === "flat" ? -.006 + random() * .012 : -.015 - random() * .035
-        : outcome === "good" ? .06 + random() * .1 : outcome === "flat" ? -.025 + random() * .05 : -.08 - random() * .12);
+      const rawReturnRate = dailyMovement?.moveRate ?? (outcome === "good" ? .06 + random() * .1 : outcome === "flat" ? -.025 + random() * .05 : -.08 - random() * .12);
       const returnRate = applyAssetReturnLimits(position.category, rawReturnRate);
       const before = position.value;
       const after = Math.max(0, before * (1 + returnRate));
@@ -1963,34 +1711,11 @@ export default function Home() {
       const profit = after - before;
       resolution = {
         tone: outcome,
-        eyebrow: position.category === "房地產" ? `房地產 · 第${position.unit ?? 1}間估價更新` : `${position.category} · 既有倉位結算`,
+        eyebrow: `${position.category} · 既有倉位結算`,
         title: outcome === "good" ? "你抱住了部位，也抱住了行情。" : outcome === "flat" ? "消息很吵，倉位幾乎原地踏步。" : "沒有動作，也是一種有價格的選擇。",
-        body: position.category === "房地產" ? `第${position.unit ?? 1}間${position.name}重新估價，你沒有再買，也沒有出售。` : `${position.name} 完整承受事件波動，你沒有追價，也沒有提前離場。`,
+        body: `${position.name} 完整承受事件波動，你沒有追價，也沒有提前離場。`,
         detail: `依投資知識、信用與事件風險計算，本次好結果機率約 ${Math.round(goodChance * 100)}%。${dailyMovement ? `${dailyMoveDetail(position.category, dailyMovement)}，本月累計報酬 ${(returnRate * 100).toFixed(1)}%。` : position.category === "加密貨幣" ? `加密貨幣單次漲幅上限 +66%、跌幅上限 −60%，本次報酬 ${(returnRate * 100).toFixed(1)}%。` : ""}既有部位變動 ${formatMoney(profit)}。`,
         deltas: [`帳面損益 ${profit >= 0 ? "+" : "−"}${formatMoney(Math.abs(profit)).replace("NT$ ", "")}`, `壓力 ${outcome === "good" ? "−2" : outcome === "bad" ? "+9" : "+2"}`, `投資知識 +${knowledgeGain}`],
-      };
-    } else if (choice.action === "sell") {
-      const positionIndex = next.assets.findIndex((asset) => choice.positionId ? asset.id === choice.positionId : asset.name === choice.asset?.name);
-      if (positionIndex < 0) return;
-      const position = next.assets[positionIndex];
-      if (position.category !== "房地產") return;
-      const mortgage = position.loan ?? 0;
-      const netProceeds = position.value - mortgage;
-      const saleShortfall = Math.max(0, -netProceeds);
-      const cashProceeds = Math.max(0, netProceeds);
-      const realizedProfit = position.value - position.cost;
-      next.cash += cashProceeds;
-      next.debt = Math.max(0, next.debt - mortgage + saleShortfall);
-      next.assets = next.assets.filter((_, index) => index !== positionIndex);
-      next.gauges.stress = clamp(next.gauges.stress - 5);
-      addKnowledge(next.gauges, 3);
-      resolution = {
-        tone: realizedProfit >= 0 ? "good" : "bad",
-        eyebrow: `房地產 · 第${position.unit ?? 1}間出售`,
-        title: realizedProfit >= 0 ? "房子成交，帳面獲利終於變成現金。" : "房子成交，你用現金結束了這次套房人生。",
-        body: `第${position.unit ?? 1}間${position.name}已整間出售，這筆資產不再留在清單中。`,
-        detail: `售價 ${formatMoney(position.value)}，清償房貸 ${formatMoney(mortgage)}，實現房價損益 ${formatMoney(realizedProfit)}。${saleShortfall > 0 ? `售價不足清償的 ${formatMoney(saleShortfall)} 轉為有息負債。` : ""}`,
-        deltas: [`房地產 −1 間`, `房貸 −${formatMoney(mortgage).replace("NT$ ", "")}`, ...(cashProceeds > 0 ? [`現金 +${formatMoney(cashProceeds).replace("NT$ ", "")}`] : []), ...(saleShortfall > 0 ? [`剩餘負債 +${formatMoney(saleShortfall).replace("NT$ ", "")}`] : []), `實現損益 ${realizedProfit >= 0 ? "+" : "−"}${formatMoney(Math.abs(realizedProfit)).replace("NT$ ", "")}`],
       };
     } else if (choice.action === "reduce") {
       const positionIndex = next.assets.findIndex((asset) => choice.positionId ? asset.id === choice.positionId : asset.name === choice.asset?.name);
@@ -2001,7 +1726,7 @@ export default function Home() {
       const releasedCost = position.cost * sellRatio;
       const realizedProfit = proceeds - releasedCost;
       const releasedLoan = (position.loan ?? 0) * sellRatio;
-      const generalDebt = Math.max(0, next.debt - (next.familyDebt ?? 0) - mortgageDebtOf(next.assets));
+      const generalDebt = Math.max(0, next.debt - (next.familyDebt ?? 0));
       const automaticRepayment = Math.min(proceeds, releasedLoan, generalDebt);
       next.cash += proceeds - automaticRepayment;
       next.debt = Math.max(0, next.debt - automaticRepayment);
@@ -2063,20 +1788,20 @@ export default function Home() {
       };
     }
 
-    if (choice.intelAction && eventContext) {
-      const targets = eventTargetsForEvent(eventContext);
+    if (choice.intelAction && sourceEvent) {
+      const targets = eventTargetsForEvent(sourceEvent);
       if (targets.length) {
-        const rawIntels = targets.map((target, index) => createMarketIntel(next, eventContext, choice.intelAction!, target, index));
+        const rawIntels = targets.map((target, index) => createMarketIntel(next, sourceEvent, choice.intelAction!, target, index));
         const primaryIntel = rawIntels[0];
         const readAttempted = Boolean(primaryIntel?.record.readDirection);
         const readCorrect = readAttempted && primaryIntel.record.readDirection === primaryIntel.signal.direction;
         const streak = readCorrect ? (next.correctSignalStreak ?? 0) + 1 : 0;
         const breakoutEligible = readCorrect && streak >= BREAKOUT_STREAK_TARGET && primaryIntel.signal.direction === "bullish";
         const breakoutUnlocked = breakoutEligible
-          && signalHash(`${next.seed}:${eventContext.id}:${next.year}:${next.season}:${next.month}:breakout`) % 100 < BREAKOUT_UNLOCK_CHANCE_PERCENT;
+          && signalHash(`${next.seed}:${sourceEvent.id}:${next.year}:${next.season}:${next.month}:breakout`) % 100 < BREAKOUT_UNLOCK_CHANCE_PERCENT;
         const foresightUnlocked = readCorrect
           && next.gauges.knowledge >= KNOWLEDGE_FORESIGHT_LEVEL
-          && signalHash(`${next.seed}:${eventContext.id}:${next.year}:${next.season}:${next.month}:foresight`) % 100 < FORESIGHT_CHANCE_PERCENT;
+          && signalHash(`${next.seed}:${sourceEvent.id}:${next.year}:${next.season}:${next.month}:foresight`) % 100 < FORESIGHT_CHANCE_PERCENT;
         next.annualDirectionalReads = (next.annualDirectionalReads ?? 0) + (readAttempted ? 1 : 0);
         next.annualCorrectReads = (next.annualCorrectReads ?? 0) + (readCorrect ? 1 : 0);
         next.maxCorrectSignalStreak = Math.max(next.maxCorrectSignalStreak ?? 0, streak);
@@ -2132,7 +1857,7 @@ export default function Home() {
         const focusedIntels = intels.filter((intel) => intel.signal.role !== "market");
         const marketIntelCount = intels.length - focusedIntels.length;
         const marketIntelDetail = marketIntelCount > 0
-          ? `；${marketScopeLabel(eventContext.marketScope)}另有 ${marketIntelCount} 檔受到較弱的 1 季擴散影響`
+          ? `；${marketScopeLabel(sourceEvent.marketScope)}另有 ${marketIntelCount} 檔受到較弱的 1 季擴散影響`
           : "";
         resolution.detail = `${resolution.detail} ${focusedIntels.map((intel) => `${intel.record.clue} ${intel.record.durationLabel}${intel.record.opportunityLabel ? `；${intel.record.opportunityLabel}` : ""}`).join("；")}${marketIntelDetail}；${streakNote}實際行情仍有隨機波動。`;
         resolution.deltas = [
@@ -2144,7 +1869,7 @@ export default function Home() {
         resolution.deltas = [
           ...resolution.deltas,
           `情報入庫：主要「${targets.find((target) => target.role === "primary")?.name}」／連動「${targets.find((target) => target.role === "linked")?.name}」`,
-          ...(marketIntelCount > 0 ? [`市場擴散：${marketScopeLabel(eventContext.marketScope)}共 ${targets.filter((target) => marketScopeCategories(eventContext.marketScope).includes(target.category)).length} 檔`] : []),
+          ...(marketIntelCount > 0 ? [`市場擴散：${marketScopeLabel(sourceEvent.marketScope)}共 ${targets.filter((target) => marketScopeCategories(sourceEvent.marketScope).includes(target.category)).length} 檔`] : []),
         ];
       }
     }
@@ -2190,16 +1915,10 @@ export default function Home() {
       setPendingReduction(choice);
       return;
     }
-    resolveChoice(choice, undefined, currentEvent ?? undefined);
+    resolveChoice(choice);
     if (currentEventTarget && brokerCategoryOrder.includes(currentEventTarget.category)) setBrokerCategory(currentEventTarget.category);
     setBrokerNotice(null);
     setBrokerOpen(true);
-  }
-
-  function choosePropertyReviewOption(choice: Choice) {
-    if (!propertyReview || !propertyReviewPosition) return;
-    setPropertyReviewResolving(true);
-    resolveChoice(choice, undefined, propertyReview.event);
   }
 
   function confirmReduction(ratio: .5 | 1) {
@@ -2210,7 +1929,7 @@ export default function Home() {
   }
 
   function openPositionTrade(position: Position) {
-    if (!game || position.category === "房地產" || game.phase !== "season" || game.result || quarterSurprise || propertyReview || incomeChoiceRequired || familyEvent || illnessEvent) return;
+    if (!game || game.phase !== "season" || game.result || quarterSurprise || incomeChoiceRequired || familyEvent || illnessEvent) return;
     setPositionTradeTarget({ ...position });
     setPositionTradeNotice(null);
   }
@@ -2223,13 +1942,12 @@ export default function Home() {
       return;
     }
     const position = game.assets[positionIndex];
-    if (position.category === "房地產") return;
     const sellRatio = game.specialTrait === "紙手體質" ? 1 : requestedRatio;
     const proceeds = position.value * sellRatio;
     const releasedCost = position.cost * sellRatio;
     const realizedProfit = proceeds - releasedCost;
     const releasedLoan = (position.loan ?? 0) * sellRatio;
-    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0) - mortgageDebtOf(game.assets));
+    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0));
     const automaticRepayment = Math.min(proceeds, releasedLoan, generalDebt);
     const netCash = proceeds - automaticRepayment;
     const remainingValue = position.value - proceeds;
@@ -2273,44 +1991,6 @@ export default function Home() {
 
   function brokerBuy(asset: BrokerAsset, ratio: .25 | .5 | 1 = .25) {
     if (!game || !brokerOpen || game.cash <= 0) return;
-    if (asset.category === "房地產") {
-      const price = propertyUnitPrice(asset.name);
-      const downPayment = propertyDownPayment(game, asset.name);
-      const mortgage = price - downPayment;
-      if (game.cash < downPayment) {
-        setBrokerNotice(`「${asset.name}」需要自備款 ${formatMoney(downPayment)}，目前現金不足。`);
-        return;
-      }
-      const assets = addPosition(game.assets, {
-        id: deterministicPositionId(game, "broker-property", asset.name),
-        category: asset.category,
-        name: asset.name,
-        cost: price,
-        value: price,
-        loan: mortgage,
-        mortgageMonthsRemaining: MORTGAGE_TERM_MONTHS,
-      });
-      const nextGame = {
-        ...game,
-        cash: game.cash - downPayment,
-        debt: game.debt + mortgage,
-        assets,
-        achievementStats: achievementStatsForAssets(game.achievementStats ?? blankAchievementStats(), assets),
-        history: [...game.history, `${game.age}歲${periodLabel(game)}券商：買進一間${asset.name}`].slice(-8),
-      };
-      trackAnonymous("trade", {
-        side: "buy",
-        category: asset.category,
-        target: asset.name,
-        ratio: 100,
-        amount: Math.round(price),
-        netWorth: Math.round(netWorth(nextGame)),
-      }, nextGame);
-      setGame(nextGame);
-      setBrokerNotice(`已買進一間「${asset.name}」；支付自備款 ${formatMoney(downPayment)}，新增房貸 ${formatMoney(mortgage)}。`);
-      return;
-    }
-
     const budget = Math.min(game.cash, Math.max(3000, game.cash * ratio));
     if (budget < 3000) {
       setBrokerNotice("單筆最低下單金額為 NT$ 3,000，目前可用現金不足。");
@@ -2351,39 +2031,13 @@ export default function Home() {
     if (positionIndex < 0) return;
     const current = game.assets[positionIndex];
 
-    if (current.category === "房地產") {
-      const mortgage = current.loan ?? 0;
-      const equity = current.value - mortgage;
-      const cashProceeds = Math.max(0, equity);
-      const saleShortfall = Math.max(0, -equity);
-      const assets = game.assets.filter((_, index) => index !== positionIndex);
-      const nextGame = {
-        ...game,
-        cash: game.cash + cashProceeds,
-        debt: Math.max(0, game.debt - mortgage + saleShortfall),
-        assets,
-        history: [...game.history, `${game.age}歲${periodLabel(game)}券商：出售第${current.unit ?? 1}間${current.name}`].slice(-8),
-      };
-      trackAnonymous("trade", {
-        side: "sell",
-        category: current.category,
-        target: current.name,
-        ratio: 100,
-        amount: Math.round(current.value),
-        netWorth: Math.round(netWorth(nextGame)),
-      }, nextGame);
-      setGame(nextGame);
-      setBrokerNotice(`已整間出售「${current.name}」，清償房貸 ${formatMoney(mortgage)}${cashProceeds > 0 ? `，現金增加 ${formatMoney(cashProceeds)}` : `，剩餘缺口 ${formatMoney(saleShortfall)} 轉為負債`}。`);
-      return;
-    }
-
     const ratio = game.specialTrait === "紙手體質" ? 1 : requestedRatio;
     const gross = current.value * ratio;
     const fee = gross * brokerSellFeeRate(current.category);
     const proceeds = Math.max(0, gross - fee);
     const releasedCost = current.cost * ratio;
     const releasedLoan = (current.loan ?? 0) * ratio;
-    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0) - mortgageDebtOf(game.assets));
+    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0));
     const automaticRepayment = Math.min(proceeds, releasedLoan, generalDebt);
     const netCash = proceeds - automaticRepayment;
     const remainingValue = current.value - gross;
@@ -2487,13 +2141,6 @@ export default function Home() {
     closeQuarterWithHealthCheck(game);
   }
 
-  function continueAfterPropertyReview() {
-    if (!game?.result) return;
-    setGame({ ...game, result: null });
-    setPropertyReview(null);
-    setPropertyReviewResolving(false);
-  }
-
   function revealQuarterSurprise(action: "hold" | "add" | "close", response?: "research" | "rest" | "content") {
     if (!game || !quarterSurprise || quarterSurprise.outcome) return;
     const originalPosition = game.assets.find((asset) => asset.id === quarterSurprise.targetId);
@@ -2522,43 +2169,18 @@ export default function Home() {
     let creditInvestmentPurchase = 0;
 
     if (action === "add" && originalPosition) {
-      if (originalPosition.category === "房地產") {
-        const price = propertyUnitPrice(originalPosition.name);
-        const downPayment = propertyDownPayment(game, originalPosition.name);
-        if (cash < downPayment) return;
-        const mortgage = price - downPayment;
-        const newValue = Math.max(0, price * (1 + impact.moveRate));
-        cash -= downPayment;
-        debt += mortgage;
-        marketMove += newValue - price;
-        affectedMovement += newValue - price;
-        assets = addPosition(assets, {
-      id: deterministicPositionId(game, "surprise-add", quarterSurprise.targetName),
-          category: "房地產",
-          name: originalPosition.name,
-          cost: price,
-          value: newValue,
-          loan: mortgage,
-          mortgageMonthsRemaining: MORTGAGE_TERM_MONTHS,
-          declineStreak: impact.declined ? 1 : 0,
-          riseStreak: impact.declined ? 0 : 1,
-        });
-        transactionDeltas = [`自備款 −${formatMoney(downPayment).replace("NT$ ", "")}`, "房地產 +1 間", `負債 +${formatMoney(mortgage).replace("NT$ ", "")}`];
-        actionDetail = `你在消息揭曉前再買一間，自備款 ${formatMoney(downPayment)}，新房與原持有物件一起承受本次波動。`;
-      } else {
-        const added = Math.min(cash, Math.max(3000, cash * .25));
-        if (added <= 0) return;
-        const movedIndex = assets.findIndex((asset) => asset.id === originalPosition.id);
-        if (movedIndex < 0) return;
-        const addedValue = Math.max(0, added * (1 + impact.moveRate));
-        cash -= added;
-        creditInvestmentPurchase = added;
-        marketMove += addedValue - added;
-        affectedMovement += addedValue - added;
-        assets = assets.map((asset, index) => index === movedIndex ? { ...asset, cost: asset.cost + added, value: asset.value + addedValue } : asset);
-        transactionDeltas = [`投入本金 −${formatMoney(added).replace("NT$ ", "")}`, `加倉 ${formatMoney(added).replace("NT$ ", "")}`];
-        actionDetail = `你在消息揭曉前投入 ${formatMoney(added)} 加倉，新增部位與原倉位一起承受本次波動。`;
-      }
+      const added = Math.min(cash, Math.max(3000, cash * .25));
+      if (added <= 0) return;
+      const movedIndex = assets.findIndex((asset) => asset.id === originalPosition.id);
+      if (movedIndex < 0) return;
+      const addedValue = Math.max(0, added * (1 + impact.moveRate));
+      cash -= added;
+      creditInvestmentPurchase = added;
+      marketMove += addedValue - added;
+      affectedMovement += addedValue - added;
+      assets = assets.map((asset, index) => index === movedIndex ? { ...asset, cost: asset.cost + added, value: asset.value + addedValue } : asset);
+      transactionDeltas = [`投入本金 −${formatMoney(added).replace("NT$ ", "")}`, `加倉 ${formatMoney(added).replace("NT$ ", "")}`];
+      actionDetail = `你在消息揭曉前投入 ${formatMoney(added)} 加倉，新增部位與原倉位一起承受本次波動。`;
     } else if (action === "add" && watchedAsset) {
       const added = Math.min(cash, Math.max(3000, cash * .25));
       if (added <= 0) return;
@@ -2583,24 +2205,13 @@ export default function Home() {
       assets = assets.filter((asset) => asset.id !== originalPosition.id);
       marketMove -= avoidedMovement;
       affectedMovement = 0;
-      if (originalPosition.category === "房地產") {
-        const mortgage = originalPosition.loan ?? 0;
-        const proceeds = originalPosition.value - mortgage;
-        const saleShortfall = Math.max(0, -proceeds);
-        const cashProceeds = Math.max(0, proceeds);
-        cash += cashProceeds;
-        debt = Math.max(0, debt - mortgage + saleShortfall);
-        transactionDeltas = ["房地產 −1 間", `房貸 −${formatMoney(mortgage).replace("NT$ ", "")}`, ...(cashProceeds > 0 ? [`現金 +${formatMoney(cashProceeds).replace("NT$ ", "")}`] : []), ...(saleShortfall > 0 ? [`剩餘負債 +${formatMoney(saleShortfall).replace("NT$ ", "")}`] : [])];
-        actionDetail = `你在消息揭曉前整間出售，按原估值成交並清償 ${formatMoney(mortgage)} 房貸，因此避開或錯過本次價格波動。`;
-      } else {
-        const generalDebt = Math.max(0, debt - (game.familyDebt ?? 0) - mortgageDebtOf(game.assets));
-        const automaticRepayment = Math.min(originalPosition.value, originalPosition.loan ?? 0, generalDebt);
-        const netProceeds = originalPosition.value - automaticRepayment;
-        cash += netProceeds;
-        debt = Math.max(0, debt - automaticRepayment);
-        transactionDeltas = [`賣出價款 +${formatMoney(originalPosition.value).replace("NT$ ", "")}`, ...(automaticRepayment > 0 ? [`自動還債 −${formatMoney(automaticRepayment).replace("NT$ ", "")}`] : []), `現金淨增加 +${formatMoney(netProceeds).replace("NT$ ", "")}`, "部位 −100%", "本月該部位波動 0"];
-        actionDetail = `你在消息揭曉前全部平倉，按原市值賣出 ${formatMoney(originalPosition.value)}。${automaticRepayment > 0 ? `系統先償還 ${formatMoney(automaticRepayment)} 槓桿本金，` : ""}其餘 ${formatMoney(netProceeds)} 回到現金，因此避開或錯過本次波動。`;
-      }
+      const generalDebt = Math.max(0, debt - (game.familyDebt ?? 0));
+      const automaticRepayment = Math.min(originalPosition.value, originalPosition.loan ?? 0, generalDebt);
+      const netProceeds = originalPosition.value - automaticRepayment;
+      cash += netProceeds;
+      debt = Math.max(0, debt - automaticRepayment);
+      transactionDeltas = [`賣出價款 +${formatMoney(originalPosition.value).replace("NT$ ", "")}`, ...(automaticRepayment > 0 ? [`自動還債 −${formatMoney(automaticRepayment).replace("NT$ ", "")}`] : []), `現金淨增加 +${formatMoney(netProceeds).replace("NT$ ", "")}`, "部位 −100%", "本月該部位波動 0"];
+      actionDetail = `你在消息揭曉前全部平倉，按原市值賣出 ${formatMoney(originalPosition.value)}。${automaticRepayment > 0 ? `系統先償還 ${formatMoney(automaticRepayment)} 槓桿本金，` : ""}其餘 ${formatMoney(netProceeds)} 回到現金，因此避開或錯過本次波動。`;
     }
 
     const directionLabel = quarterSurprise.direction === "bullish" ? "利多" : "利空";
@@ -2820,7 +2431,6 @@ export default function Home() {
 
   function openDebtAction(action: DebtAction) {
     setDebtNotice(null);
-    setMortgageTargetId(null);
     setDebtAction(action);
   }
 
@@ -2884,7 +2494,7 @@ export default function Home() {
   function requestCreditLoan(amount: number) {
     if (!game || game.phase === "ending" || game.lastCreditBorrowYear === game.year) return;
     if (amount < 100000 || amount > CREDIT_LOAN_MAX || amount % 10000 !== 0) return;
-    const currentGeneralDebt = Math.max(0, game.debt - (game.familyDebt ?? 0) - mortgageDebtOf(game.assets));
+    const currentGeneralDebt = Math.max(0, game.debt - (game.familyDebt ?? 0));
     const limit = creditLoanLimit(game);
     const capacity = Math.max(0, Math.min(CREDIT_LOAN_MAX, limit) - currentGeneralDebt);
     if (amount > capacity) return;
@@ -2925,8 +2535,7 @@ export default function Home() {
 
   function repayInterestDebt(ratio: .5 | 1) {
     if (!game || game.cash <= 0) return;
-    const mortgageDebt = mortgageDebtOf(game.assets);
-    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0) - mortgageDebt);
+    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0));
     if (generalDebt <= 0) return;
     const target = ratio === 1 ? generalDebt : generalDebt * .5;
     const repaid = Math.min(game.cash, target);
@@ -2935,7 +2544,7 @@ export default function Home() {
     const appliedToTrackedLoans = Math.max(0, repaid - Math.min(repaid, untrackedDebt));
     const loanFactor = trackedLeverageDebt > 0 ? Math.max(0, 1 - appliedToTrackedLoans / trackedLeverageDebt) : 1;
     const assets = appliedToTrackedLoans > 0
-      ? game.assets.map((asset) => asset.category === "房地產" ? asset : { ...asset, loan: (asset.loan ?? 0) * loanFactor })
+      ? game.assets.map((asset) => ({ ...asset, loan: (asset.loan ?? 0) * loanFactor }))
       : game.assets;
     const remaining = Math.max(0, generalDebt - repaid);
     const fullyRepaid = remaining < 1;
@@ -2965,37 +2574,6 @@ export default function Home() {
       tone: "good",
       title: fullyRepaid ? "信貸與有息負債清空，利息終於停止吃本金。" : "你先砍掉一部分本金，後續本息也跟著變小。",
       body: `本次償還 ${formatMoney(repaid)}，信貸與其他有息負債剩餘 ${formatMoney(remaining)}。信用 +${fullyRepaid ? 3 : 1}、壓力 −${fullyRepaid ? 5 : 2}。`,
-    });
-  }
-
-  function prepayMortgage(ratio: .5 | 1) {
-    if (!game || !mortgageTargetId || game.cash <= 0) return;
-    const position = game.assets.find((asset) => asset.id === mortgageTargetId && asset.category === "房地產");
-    if (!position || (position.loan ?? 0) <= 0) return;
-    const mortgage = position.loan ?? 0;
-    const target = ratio === 1 ? mortgage : mortgage * .5;
-    const repaid = Math.min(game.cash, target);
-    const remaining = Math.max(0, mortgage - repaid);
-    const fullyRepaid = remaining < 1;
-    const gauges = { ...game.gauges };
-    gauges.credit = clamp(gauges.credit + (fullyRepaid ? 3 : 1));
-    gauges.stress = clamp(gauges.stress - (fullyRepaid ? 4 : 2));
-    const assets = game.assets.map((asset) => asset.id === position.id ? { ...asset, loan: remaining } : asset);
-    const nextGame = { ...game, cash: game.cash - repaid, debt: Math.max(0, game.debt - repaid), assets, gauges };
-    trackAnonymous("debt_action", {
-      action: "mortgage_repay",
-      target: position.name,
-      ratio: Math.round(ratio * 100),
-      amount: Math.round(repaid),
-      cash: Math.round(nextGame.cash),
-      debt: Math.round(nextGame.debt),
-      credit: nextGame.gauges.credit,
-    }, nextGame);
-    setGame(nextGame);
-    setDebtNotice({
-      tone: "good",
-      title: fullyRepaid ? `第${position.unit ?? 1}間房貸已清償。` : `第${position.unit ?? 1}間房貸先還了一部分。`,
-      body: `本次提前還款 ${formatMoney(repaid)}，${position.name}剩餘房貸 ${formatMoney(remaining)}。信用 +${fullyRepaid ? 3 : 1}、壓力 −${fullyRepaid ? 4 : 2}。`,
     });
   }
 
@@ -3193,9 +2771,7 @@ export default function Home() {
     const untrackedDebt = Math.max(0, generalInterestDebt - trackedLeverageDebt);
     const appliedToTrackedLoans = Math.max(0, creditService.principalPaid - Math.min(creditService.principalPaid, untrackedDebt));
     const loanFactor = trackedLeverageDebt > 0 ? Math.max(0, 1 - appliedToTrackedLoans / trackedLeverageDebt) : 1;
-    const assets = current.assets
-      .filter((asset) => asset.category !== "房地產")
-      .map((asset) => appliedToTrackedLoans > 0 ? { ...asset, loan: (asset.loan ?? 0) * loanFactor } : asset);
+    const assets = current.assets.map((asset) => appliedToTrackedLoans > 0 ? { ...asset, loan: (asset.loan ?? 0) * loanFactor } : asset);
     const gauges = { ...current.gauges };
     const generalDebtAfter = Math.max(0, debt - (current.familyDebt ?? 0));
     const generalDebtPressure = generalDebtAfter > Math.max(1000000, incomeAdded * 4) ? 2 : generalDebtAfter > Math.max(500000, incomeAdded * 2) ? 1 : 0;
@@ -3339,15 +2915,12 @@ export default function Home() {
     setPositionTradeNotice(null);
     setQuarterSurprise(null);
     setDebtAction(null);
-    setMortgageTargetId(null);
     setDebtNotice(null);
     setIncomeNotice(null);
     setFamilyEvent(null);
     setIllnessEvent(null);
     setIllnessNotice(null);
     setHistoryOpen(false);
-    setPropertyReview(null);
-    setPropertyReviewResolving(false);
     setBrokerOpen(false);
     setBrokerCategory("台股");
     setBrokerNotice(null);
@@ -3467,11 +3040,9 @@ export default function Home() {
   const incomeChoiceRequired = game.phase === "season" && game.gauges.health > 0 && !incomeChoiceUsed;
   const surprisePosition = quarterSurprise?.targetId ? game.assets.find((asset) => asset.id === quarterSurprise.targetId) : undefined;
   const surpriseAvailableCash = Math.max(0, game.cash);
-  const surpriseMinimumAdd = surprisePosition?.category === "房地產" ? propertyDownPayment(game, surprisePosition.name) : 3000;
+  const surpriseMinimumAdd = 3000;
   const surpriseCanAdd = surpriseAvailableCash >= surpriseMinimumAdd;
-  const surpriseAddCost = surprisePosition?.category === "房地產"
-    ? surpriseMinimumAdd
-    : surpriseCanAdd ? Math.min(surpriseAvailableCash, Math.max(3000, surpriseAvailableCash * .25)) : surpriseMinimumAdd;
+  const surpriseAddCost = surpriseCanAdd ? Math.min(surpriseAvailableCash, Math.max(3000, surpriseAvailableCash * .25)) : surpriseMinimumAdd;
   const debtActionEyebrow = debtAction === "borrow" ? "負債管理 · 家庭借款申請"
     : debtAction === "repay" ? "負債管理 · 償還家人"
       : debtAction === "creditBorrow" ? "負債管理 · 銀行信貸申請"
@@ -3560,7 +3131,7 @@ export default function Home() {
           {assetsOpen && <div className="asset-drawer">
             {game.assets.length === 0 ? <p>帳戶空空的，只有無限可能。</p> : game.assets.map((asset) => {
               const profit = asset.value - asset.cost;
-              return <div className="asset-row" key={asset.id}><span><i>{asset.category}{asset.category === "房地產" ? ` · 第${asset.unit ?? 1}間` : ""}</i><b>{asset.name}</b>{asset.category === "房地產" && <small className="property-cashflow-hint">{asset.name === RENTAL_PROPERTY_NAME ? "年租金約1.8% · 持有成本約0.4%" : "年省居住支出9.6萬 · 持有成本約0.4%"}</small>}{(asset.bearQuarters ?? 0) > 0 && <small className="trend-badge trend-down">空頭壓力剩 {asset.bearQuarters} 季 · 跌≥75%</small>}{(asset.bullQuarters ?? 0) > 0 && <small className="trend-badge trend-up">多頭慣性剩 {asset.bullQuarters} 季 · 漲≥65%</small>}</span><span><b>{formatMoney(asset.value)}</b><em className={profit >= 0 ? "positive" : "negative"}>{profit >= 0 ? "+" : ""}{((profit / Math.max(asset.cost, 1)) * 100).toFixed(1)}%</em>{(asset.loan ?? 0) > 0 && <small className="asset-loan">{asset.category === "房地產" ? "房貸" : "槓桿本金"} {formatMoney(asset.loan ?? 0)}</small>}</span></div>;
+              return <div className="asset-row" key={asset.id}><span><i>{asset.category}</i><b>{asset.name}</b>{(asset.bearQuarters ?? 0) > 0 && <small className="trend-badge trend-down">空頭壓力剩 {asset.bearQuarters} 季 · 跌≥75%</small>}{(asset.bullQuarters ?? 0) > 0 && <small className="trend-badge trend-up">多頭慣性剩 {asset.bullQuarters} 季 · 漲≥65%</small>}</span><span><b>{formatMoney(asset.value)}</b><em className={profit >= 0 ? "positive" : "negative"}>{profit >= 0 ? "+" : ""}{((profit / Math.max(asset.cost, 1)) * 100).toFixed(1)}%</em>{(asset.loan ?? 0) > 0 && <small className="asset-loan">槓桿本金 {formatMoney(asset.loan ?? 0)}</small>}</span></div>;
             })}
           </div>}
           {debtsOpen && <div className="debt-drawer">
@@ -3650,8 +3221,8 @@ export default function Home() {
             <div className={`choices surprise-choices ${surprisePosition ? "surprise-position-actions" : "surprise-watch-actions"}`}>
               {surprisePosition ? <>
                 <button onClick={() => revealQuarterSurprise("hold")}><span>A</span><b>維持倉位</b><small>不改變持倉，完整承受消息成真或反轉的本月波動。</small><div className="choice-meta"><em className="risk-tag risk-steady">部位 不動</em><em className="money-hint">現金不變</em></div></button>
-                <button disabled={!surpriseCanAdd} onClick={() => revealQuarterSurprise("add")}><span>B</span><b>{surprisePosition.category === "房地產" ? "再買 1 間" : "繼續加倉"}</b><small>{surpriseCanAdd ? `消息揭曉前投入 ${formatMoney(surpriseAddCost)}，新增部位一起承受波動。` : `現金不足，需要 ${formatMoney(surpriseAddCost)}。`}</small><div className="choice-meta"><em className="risk-tag risk-bold">部位 加碼</em><em className="money-hint">{surprisePosition.category === "房地產" ? "增加 1 間" : "可用現金 25%"}</em></div></button>
-                <button onClick={() => revealQuarterSurprise("close")}><span>C</span><b>{surprisePosition.category === "房地產" ? "整間出售" : "全部平倉"}</b><small>按消息揭曉前的市值賣出，避開下跌，也可能錯過上漲。</small><div className="choice-meta"><em className="risk-tag risk-bold">部位 清空</em><em className="money-hint">賣出 100%</em></div></button>
+                <button disabled={!surpriseCanAdd} onClick={() => revealQuarterSurprise("add")}><span>B</span><b>繼續加倉</b><small>{surpriseCanAdd ? `消息揭曉前投入 ${formatMoney(surpriseAddCost)}，新增部位一起承受波動。` : `現金不足，需要 ${formatMoney(surpriseAddCost)}。`}</small><div className="choice-meta"><em className="risk-tag risk-bold">部位 加碼</em><em className="money-hint">可用現金 25%</em></div></button>
+                <button onClick={() => revealQuarterSurprise("close")}><span>C</span><b>全部平倉</b><small>按消息揭曉前的市值賣出，避開下跌，也可能錯過上漲。</small><div className="choice-meta"><em className="risk-tag risk-bold">部位 清空</em><em className="money-hint">賣出 100%</em></div></button>
               </> : <>
                 <button onClick={() => revealQuarterSurprise("hold")}><span>A</span><b>保持觀望</b><small>不建立部位，只看消息最後成真還是反轉。</small><div className="choice-meta"><em className="risk-tag risk-steady">部位 觀望</em><em className="money-hint">持倉損益 0</em></div></button>
                 <button disabled={!surpriseCanAdd} onClick={() => revealQuarterSurprise("add")}><span>B</span><b>建立部位</b><small>{surpriseCanAdd ? `投入 ${formatMoney(surpriseAddCost)}，立即參與本次波動。` : "現金不足，至少需要 NT$ 3,000。"}</small><div className="choice-meta"><em className="risk-tag risk-bold">部位 買進</em><em className="money-hint">可用現金 25%</em></div></button>
@@ -3659,19 +3230,7 @@ export default function Home() {
               </>}
             </div>
           </article> : game.result ? <article className={`event-card result-card tone-${game.result.tone}`}>
-            <p className="eyebrow green">{periodLabel(game)} · 第 {game.month + 1} 次事件 · {game.result.eyebrow}</p><div className="result-symbol">{game.result.tone === "good" ? "↗" : game.result.tone === "bad" ? "↘" : "→"}</div><h1>{game.result.title}</h1><p className="lede">{game.result.body}</p><div className="delta-list">{game.result.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div><details className="result-calculation"><summary>查看計算詳情</summary><div className="result-detail">{game.result.detail}</div></details><button className="primary" onClick={propertyReviewResolving ? continueAfterPropertyReview : continueAfterResult}>{propertyReviewResolving ? "回到本次市場事件" : "進入本次券商 APP"} <span>→</span></button>
-          </article> : propertyReview && propertyReviewPosition ? <article className="event-card">
-            <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)} · 持有滿六個月額外房務事件</p>
-            <div className="event-impact-tag"><span>本次房務標的</span><b>房地產 · 「第{propertyReviewPosition.unit ?? 1}間{propertyReviewPosition.name}」</b><i className="target-price">{formatMoney(propertyReviewPosition.value)}</i></div>
-            <h1>{propertyReview.event.title}</h1><p className="lede">{propertyReview.event.body}</p><div className="quote">「{propertyReview.event.quote}」<span>— {propertyReview.event.source}</span></div>
-            <p className="question">這是額外房務情報，不占用本月市場事件；判讀會寫入情報庫並影響後續房價機率。</p>
-            <div className="choices">{propertyReviewChoices.map((choice, index) => {
-              return <button key={choice.label} onClick={() => choosePropertyReviewOption(choice)}>
-                <span>{String.fromCharCode(65 + index)}</span><b>{choice.label}</b><small>{choice.desc}</small>
-                <div className="choice-meta"><em className={`risk-tag risk-${choice.risk}`}>風險 {riskLabel(choice.risk)}</em>{choiceMoneyHint(game, choice) && <em className="money-hint">{choiceMoneyHint(game, choice)}</em>}</div>
-                <em className="asset-target">房務焦點｜房地產 · 「{propertyReviewPosition.name}」 · 第{propertyReviewPosition.unit ?? 1}間</em>
-              </button>;
-            })}</div>
+            <p className="eyebrow green">{periodLabel(game)} · 第 {game.month + 1} 次事件 · {game.result.eyebrow}</p><div className="result-symbol">{game.result.tone === "good" ? "↗" : game.result.tone === "bad" ? "↘" : "→"}</div><h1>{game.result.title}</h1><p className="lede">{game.result.body}</p><div className="delta-list">{game.result.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div><details className="result-calculation"><summary>查看計算詳情</summary><div className="result-detail">{game.result.detail}</div></details><button className="primary" onClick={continueAfterResult}>進入本次券商 APP <span>→</span></button>
           </article> : currentEvent && <article className="event-card">
             <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · {currentEvent.tag}</p>
             {currentEventTargets.length > 0 && <div className="event-impact-tag event-impact-pair">
@@ -3732,23 +3291,15 @@ export default function Home() {
               const profit = heldValue - heldCost;
               const activeAssetSignals = (game.activeSignals ?? []).filter((signal) => signal.targetCategory === asset.category && signal.targetName === asset.name);
               const assetSignalSummary = summarizeVisibleSignals(activeAssetSignals, game.intelRecords ?? []);
-              const isProperty = asset.category === "房地產";
-              const downPayment = isProperty ? propertyDownPayment(game, asset.name) : 0;
               return <article className="broker-asset-card" key={`${asset.category}-${asset.name}`}>
                 <div className="broker-asset-info">
                   <h3>「{asset.name}」</h3><AssetQuoteLabel asset={asset} game={game} className="broker-quote" label="即時報價" /><AssetMiniTrend asset={asset} game={game} />
-                  {positions.length ? <p>持有 {isProperty ? `${positions.length} 間` : formatMoney(heldValue)} · <em className={profit >= 0 ? "positive" : "negative"}>{profit >= 0 ? "+" : "−"}{formatMoney(Math.abs(profit)).replace("NT$ ", "")}</em></p> : <p>目前未持有</p>}
+                  {positions.length ? <p>持有 {formatMoney(heldValue)} · <em className={profit >= 0 ? "positive" : "negative"}>{profit >= 0 ? "+" : "−"}{formatMoney(Math.abs(profit)).replace("NT$ ", "")}</em></p> : <p>目前未持有</p>}
                   {activeAssetSignals.length > 0 && <small className={`broker-signal-badge signal-${assetSignalSummary.tone}`}><b>{assetSignalSummary.label}</b> · {assetSignalSummary.detail}</small>}
-                  {isProperty && <small>單間 {formatMoney(propertyUnitPrice(asset.name))} · 自備款 {formatMoney(downPayment)} · 房貸上限 {formatMoney(maximumPropertyMortgage(game, asset.name))}</small>}
                 </div>
                 <div className="broker-actions">
-                  {isProperty ? <>
-                    <button disabled={game.cash < downPayment} onClick={() => brokerBuy(asset)}>買 1 間</button>
-                    {positions.map((position) => <button className="sell" onClick={() => brokerSell(position, 1)} key={position.id}>賣第{position.unit ?? 1}間</button>)}
-                  </> : <>
-                    <div><span>買進</span><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, .25)}>25%</button><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, .5)}>50%</button><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, 1)}>MAX</button></div>
-                    {positions[0] && <div><span>賣出</span>{game.specialTrait !== "紙手體質" && <><button className="sell" onClick={() => brokerSell(positions[0], .25)}>25%</button><button className="sell" onClick={() => brokerSell(positions[0], .5)}>50%</button></>}<button className="sell" onClick={() => brokerSell(positions[0], 1)}>ALL</button></div>}
-                  </>}
+                  <div><span>買進</span><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, .25)}>25%</button><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, .5)}>50%</button><button disabled={game.cash < 3000} onClick={() => brokerBuy(asset, 1)}>MAX</button></div>
+                  {positions[0] && <div><span>賣出</span>{game.specialTrait !== "紙手體質" && <><button className="sell" onClick={() => brokerSell(positions[0], .25)}>25%</button><button className="sell" onClick={() => brokerSell(positions[0], .5)}>50%</button></>}<button className="sell" onClick={() => brokerSell(positions[0], 1)}>ALL</button></div>}
                 </div>
               </article>;
             })}
@@ -3808,12 +3359,12 @@ export default function Home() {
           </>}
         </section>
       </div>}
-      {debtAction && game.gauges.health > 0 && <div className="decision-overlay" role="presentation" onMouseDown={() => { setDebtAction(null); setDebtNotice(null); setMortgageTargetId(null); }}>
+      {debtAction && game.gauges.health > 0 && <div className="decision-overlay" role="presentation" onMouseDown={() => { setDebtAction(null); setDebtNotice(null); }}>
         <section className={`decision-dialog debt-dialog ${debtNotice ? `debt-notice-${debtNotice.tone}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="debt-action-title" onMouseDown={(event) => event.stopPropagation()}>
           <p className="eyebrow green">{debtActionEyebrow}</p>
           {debtNotice ? <>
             <h2 id="debt-action-title">{debtNotice.title}</h2><p>{debtNotice.body}</p>
-            <button className="primary" onClick={() => { setDebtAction(null); setDebtNotice(null); setMortgageTargetId(null); }}>知道了 <span>→</span></button>
+            <button className="primary" onClick={() => { setDebtAction(null); setDebtNotice(null); }}>知道了 <span>→</span></button>
           </> : debtAction === "borrow" ? <>
             <h2 id="debt-action-title">這次要向家裡<br/>開口借多少？</h2>
             <p>每年只有一次申請機會。家庭關係越高越容易通過，金額越大則會扣除更多核准權重。</p>

@@ -1,6 +1,6 @@
 export type Risk = "safe" | "steady" | "bold";
-export type Action = "invest" | "learn" | "work" | "family" | "wait" | "hold" | "reduce" | "buy" | "sell";
-export type EventKind = "tech" | "market" | "crypto" | "housing" | "career" | "macro" | "meme";
+export type Action = "invest" | "learn" | "work" | "family" | "wait" | "hold" | "reduce";
+export type EventKind = "tech" | "market" | "crypto" | "career" | "macro" | "meme";
 export type MarketDirection = "bullish" | "bearish";
 export type MarketScope = "taiwan" | "us" | "global";
 export type IntelChoiceEffects = { cash?: number; knowledge: number; stress: number; health?: number; credit?: number };
@@ -108,7 +108,6 @@ const moments: Moment[] = [
   { year: 2023, topic: "生成式AI", headline: "聊天機器人突然會寫報告，所有公司一夜之間都說自己是AI", context: "生成式AI快速普及，伺服器、晶片、散熱與軟體題材席捲台股與職場。", meme: "不會被AI取代，會被會用AI的人取代", kind: "tech", asset: { category: "台股", name: "什麼都AI伺服器" } },
   { year: 2023, topic: "皮衣教主旋風", headline: "AI晶片執行長逛夜市，攤商與供應鏈一起上新聞", context: "黃仁勳訪台帶動AI供應鏈關注，夜市行程甚至成為另類概念股地圖。", meme: "皮衣一穿，算力上山", kind: "tech", asset: { category: "美股", name: "皮衣算力" } },
   { year: 2023, topic: "全台蛋荒", headline: "超市蛋架空空，早餐店加蛋第一次像期貨報價", context: "禽流感、氣候與供應調度造成蛋價與缺蛋議題，農業政策和民生物價成為焦點。", meme: "加蛋十五，財富自由再等等", kind: "macro", asset: { category: "台股", name: "金雞下蛋農業" } },
-  { year: 2023, topic: "新青安", headline: "四十年房貸把月付變小，也把人生拉得很長", context: "新青安優惠貸款上路後帶動首購與房市熱度，寬限期、總價與負擔能力引發爭論。", meme: "先求有，再繳四十年", kind: "housing", asset: { category: "房地產", name: "四十年夢想宅" } },
   { year: 2023, topic: "山道猴子", headline: "一部動畫讓全台重新討論貸款、面子與機車改裝", context: "《山道猴子的一生》以黑色幽默描繪青年財務與社群壓力，成為年度現象級話題。", meme: "其實我也可以過得很好", kind: "meme", asset: { category: "台股", name: "二手重機信仰" } },
 
   { year: 2024, topic: "台股兩萬點", headline: "台股突破兩萬點，辦公室裡突然多了很多總經專家", context: "AI熱潮與權值股推動指數創高，市場市值、ETF與全民開戶熱度同步上升。", meme: "兩萬點不高，套牢的人才恐高", kind: "market", asset: { category: "ETF", name: "兩萬點紀念ETF" } },
@@ -116,7 +115,6 @@ const moments: Moment[] = [
   { year: 2024, topic: "0403花蓮地震", headline: "強震搖動全台，晶圓廠與每個家庭同時確認平安", context: "花蓮強震造成重大災情，也讓企業營運持續、供應鏈備援與保險保障受到關注。", meme: "先確認人，再確認盤", kind: "macro", asset: { category: "台股", name: "耐震營建更新" } },
   { year: 2024, topic: "八月股災", headline: "台股單日重挫刷新紀錄，畢業照來不及排版", context: "全球科技股回檔與槓桿套利交易逆轉引發劇烈賣壓，投資人面臨快速追繳。", meme: "早上抄底，下午變地基", kind: "market", asset: { category: "期貨", name: "八月速度與激情" } },
   { year: 2024, topic: "台積電千金行情", headline: "護國神山股價首度跨過千元，零股交易正式成為小資登山口", context: "AI需求與先進製程推升獲利預期，權值股創高也放大台股指數集中度與單一公司風險。", meme: "一張買不起，一股也算登頂", kind: "tech", asset: { category: "台股", name: "千金護國神積" } },
-  { year: 2024, topic: "美國商辦貸款警報", headline: "高利率撞上空辦公室，商用不動產貸款開始拉警報", context: "遠距工作改變辦公需求，商辦估值下修與再融資壓力一路傳到區域銀行和不動產基金。", meme: "辦公室沒人，貸款每天都準時上班", kind: "housing", asset: { category: "房地產", name: "空辦公室警報宅" } },
 
   { year: 2025, topic: "DeepSeek震撼", headline: "低成本AI模型震撼市場，算力信仰第一次被要求出示收據", context: "中國AI模型DeepSeek引發全球科技股波動，市場重新估算晶片需求、效率與護城河。", meme: "算力很貴，推理可以便宜一點", kind: "tech", asset: { category: "美股", name: "深度求索AI" } },
   { year: 2025, topic: "關稅震撼", headline: "美國新關稅清單公布，台灣出口商整夜重算報價", context: "美國關稅政策帶來高度不確定性，電子、傳產與供應鏈布局同步震盪。", meme: "關稅是別人宣布，成本是大家吸收", kind: "macro", asset: { category: "ETF", name: "00九八2欸" } },
@@ -127,13 +125,11 @@ const moments: Moment[] = [
 
   { year: 2026, topic: "台美關稅協議", headline: "台美關稅降至新框架，企業投資承諾成為市場新算式", context: "台美經貿協議降低關稅不確定性，同時伴隨半導體與AI相關赴美投資承諾。", meme: "稅率降了，資本支出上了", kind: "macro", asset: { category: "ETF", name: "台美供應鏈再平衡" } },
   { year: 2026, topic: "AI帶動高成長", headline: "AI出口推升經濟成長，主計數字比多數人的加薪更有感", context: "AI硬體需求帶動台灣出口與投資，但產業集中、泡沫風險與民間體感仍受討論。", meme: "GDP很會漲，我的薪水比較害羞", kind: "tech", asset: { category: "台股", name: "AI出口國家隊" } },
-  { year: 2026, topic: "房貸管制微調", headline: "第二戶貸款成數微調，房仲群組比央行新聞稿更早歡呼", context: "房市降溫後，央行調整第二戶貸款成數上限，信用管制與自住需求再次拉鋸。", meme: "不是鬆綁，是把腰帶放一格", kind: "housing", asset: { category: "房地產", name: "第二戶喘息宅" } },
   { year: 2026, topic: "AI資本支出折舊壓力", headline: "科技巨頭持續砸錢蓋算力，市場開始追問每一張晶片何時回本", context: "資料中心投資推升營收與供應鏈需求，但折舊、電力與融資成本也逐步侵蝕自由現金流。", meme: "算力是資產，折舊是鬧鐘", kind: "tech", asset: { category: "美股", name: "算力折舊科技巨頭" } },
 ];
 
 // 再補上 64 個不同的總經、產業、政策與迷因主題；下方會經關聯性審查後取用 100 個主題。
 const supplementalMoments: Moment[] = [
-  { year: 2016, topic: "台南強震與耐震題材", headline: "南台灣強震撼動住宅與產線，耐震不再只是建案廣告的小字", context: "災後重建讓建築安全、土壤液化、保險與企業備援成為全民課題，營建供應鏈也迎來重新檢視。", meme: "房子會增值，結構要先撐得住", kind: "housing", asset: { category: "台股", name: "節能設備受惠鏈" } },
   { year: 2016, topic: "兆豐洗錢裁罰", headline: "台灣銀行在紐約挨下巨額裁罰，法遵部門一夕從成本中心變主角", context: "海外監管裁罰讓金融業重新投入反洗錢與客戶審查，銀行獲利之外多了一張昂貴的合規帳單。", meme: "客戶要KYC，銀行也要做人檢查", kind: "market", asset: { category: "台股", name: "洗好再匯金融控股" } },
   { year: 2016, topic: "手機電池召回", headline: "旗艦手機接連冒煙停產，供應鏈第一次被電池熱到上頭條", context: "全球大規模召回衝擊品牌、電池與零組件供應商，品質管理與產品責任成為科技股的風險溢價。", meme: "這不是快充，是快速退貨", kind: "tech", asset: { category: "美股", name: "永不冒煙手機" } },
   { year: 2016, topic: "叫車平台罰單戰", headline: "手機叫車越來越方便，平台與監管卻在街頭互相按喇叭", context: "共享經濟挑戰既有計程車規則，稅籍、保險與勞動關係成為平台成長必須補交的作業。", meme: "車到了，法規還在路上", kind: "career", asset: { category: "美股", name: "合法上路叫車網" } },
@@ -147,7 +143,6 @@ const supplementalMoments: Moment[] = [
   { year: 2017, topic: "當沖證交稅減半", headline: "台股當沖稅率減半，短線成交量像解除限速", context: "交易成本下降吸引短線資金，券商手續費與市場流動性受惠，投資人承擔的價格風險卻沒有打折。", meme: "稅少一半，手速要快一倍", kind: "market", asset: { category: "台股", name: "低鬼衛星" } },
   { year: 2017, topic: "聯準會啟動縮表", headline: "聯準會開始縮減資產負債表，市場第一次聽見資金退潮的腳步聲", context: "金融海嘯後累積的債券部位逐步到期不再全數投入，利率與風險資產估值面臨新的流動性環境。", meme: "沒有升息也能抽水，央行很會", kind: "macro", asset: { category: "ETF", name: "縮表退潮防守ETF" } },
 
-  { year: 2018, topic: "0206花蓮強震", headline: "花蓮深夜強震造成災情，觀光與營建同時面對漫長修復", context: "地震衝擊旅宿、交通與住宅安全，保險覆蓋率、耐震補強和地方經濟韌性再次受到關注。", meme: "先報平安，再看訂房取消率", kind: "housing", asset: { category: "台股", name: "花東韌性重建" } },
   { year: 2018, topic: "臉書資料醜聞", headline: "社群巨頭被揭露個資遭濫用，免費服務的真正價格終於浮上桌面", context: "劍橋分析事件引發全球監管與用戶信任危機，廣告科技、資料治理與平台責任進入估值模型。", meme: "產品免費，因為產品可能是你", kind: "tech", asset: { category: "美股", name: "有臉資料廣告網" } },
   { year: 2018, topic: "GDPR上路", headline: "歐洲個資規則正式生效，全球網站同時請你接受餅乾", context: "嚴格資料保護規範提高跨國企業合規成本，也催生隱私科技、資安與資料治理需求。", meme: "我接受餅乾，但沒看內容", kind: "tech", asset: { category: "ETF", name: "隱私餅乾合規ETF" } },
   { year: 2018, topic: "科技股年底重挫", headline: "美股科技巨頭集體回檔，成長故事在年底接受估值壓力測試", context: "升息、貿易摩擦與獲利疑慮讓高估值科技股快速修正，市場重新比較成長速度與實際現金流。", meme: "聖誕行情沒來，估值先放寒假", kind: "market", asset: { category: "美股", name: "年底科技修正股" } },
@@ -187,11 +182,10 @@ const supplementalMoments: Moment[] = [
   { year: 2023, topic: "美國債限拉鋸", headline: "美國政府又接近刷爆額度，短期國債開始附帶政治風險", context: "國會與白宮談判牽動違約疑慮、政府支出與全球避險資產，市場每天計算最後期限。", meme: "信用卡不能剪，額度可以再談", kind: "macro", asset: { category: "ETF", name: "國庫額度協商ETF" } },
   { year: 2023, topic: "老師代操保證獲利", headline: "老師曬出獲利對帳單，私訊卻只剩匯款帳號", context: "假投顧用名人背書、群組見證與保證獲利吸引代操，虧損後才發現帳面數字無法提領。", meme: "老師帶你飛，客服先消失", kind: "market", asset: { category: "台股", name: "老師保證獲利股" } },
   { year: 2023, topic: "Threads登台", headline: "新的文字社群一夜湧入用戶，品牌小編重新開始追蹤數", context: "社群平台競爭改變內容流量、廣告預算與創作者生態，短期爆紅能否留住用戶成為焦點。", meme: "脆友先集合，商業模式等等", kind: "meme", asset: { category: "美股", name: "脆脆社群平台" } },
-  { year: 2023, topic: "平均地權修法", headline: "預售屋換約受到限制，短線炒房的逃生門突然變窄", context: "平均地權條例修法加強預售屋轉售限制與炒作查核，建商推案、投資客週轉與房市交易量重新定價。", meme: "房子還沒蓋好，轉手先被鎖好", kind: "housing", asset: { category: "房地產", name: "預售屋限轉宅" } },
 
   { year: 2024, topic: "比特幣現貨ETF", headline: "美國核准比特幣現貨ETF，幣圈終於穿西裝走進華爾街", context: "傳統資金取得更便利的加密曝險，託管、費率與波動風險也被包進熟悉的ETF外殼。", meme: "去中心化，先去券商開戶", kind: "crypto", asset: { category: "加密貨幣", name: "川幣" } },
   { year: 2024, topic: "輝達三兆與拆股", headline: "AI晶片龍頭站上市值三兆美元又拆股，皮衣成了全球制服", context: "生成式AI資本支出推升晶片需求，供應鏈獲利與估值同步擴張，也累積更高的期待。", meme: "一拆十不是變便宜，是信仰切片", kind: "tech", asset: { category: "美股", name: "皮衣三兆算力" } },
-  { year: 2024, topic: "聯準會降息轉向", headline: "聯準會啟動降息，市場從猜會不會變成猜還能降幾次", context: "通膨降溫與就業風險促使貨幣政策轉向，債券、房貸與成長股重新估算資金成本。", meme: "第一碼是新聞，下一碼是信仰", kind: "macro", asset: { category: "ETF", name: "降息倒數長債ETF" } },
+  { year: 2024, topic: "聯準會降息轉向", headline: "聯準會啟動降息，市場從猜會不會變成猜還能降幾次", context: "通膨降溫與就業風險促使貨幣政策轉向，債券與成長股重新估算資金成本。", meme: "第一碼是新聞，下一碼是信仰", kind: "macro", asset: { category: "ETF", name: "降息倒數長債ETF" } },
   { year: 2024, topic: "中國刺激政策煙火", headline: "中國宣布一系列刺激措施，低迷股市突然連放幾天煙火", context: "貨幣、房市與資本市場政策帶動短線反彈，需求能否持續與地方債問題仍待檢驗。", meme: "政策很多包，基本面慢慢拆", kind: "macro", asset: { category: "ETF", name: "政策煙火中概ETF" } },
   { year: 2024, topic: "川普再度勝選", headline: "川普重返白宮，關稅、減稅與移民政策再次進入投資試算表", context: "選舉結果帶動金融、能源與小型股行情，全球供應鏈則提前為美國優先政策準備多套劇本。", meme: "熟悉的紅帽，熟悉的波動", kind: "macro", asset: { category: "美股", name: "紅帽回歸交易" } },
   { year: 2024, topic: "台灣電價調漲", headline: "民生與產業電價再次調整，用電大戶先把成本模型重算一遍", context: "燃料成本與供電財務壓力反映到電價，高耗能產業毛利、節能設備與綠電需求同步受到影響。", meme: "電表轉一圈，毛利少一點", kind: "macro", asset: { category: "台股", name: "節能設備受惠鏈" } },
@@ -317,7 +311,6 @@ const basketByKind: Record<EventKind, { category: string; name: string }> = {
   tech: { category: "ETF", name: "00九八2欸" },
   market: { category: "ETF", name: "靈靈舞靈" },
   crypto: { category: "加密貨幣", name: "橘貓幣" },
-  housing: { category: "ETF", name: "靈靈舞靈" },
   career: { category: "ETF", name: "韭零韭大盤ETF" },
   macro: { category: "ETF", name: "靈靈舞靈" },
   meme: { category: "ETF", name: "韭零韭大盤ETF" },
@@ -360,7 +353,6 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "初代登月幣": { category: "加密貨幣", name: "橘貓幣" },
   "國庫級紅帽比特幣": { category: "加密貨幣", name: "川幣" },
   "英國公債驚魂期貨": { category: "ETF", name: "長天期公債ETF" },
-  "預售屋限轉宅": { category: "房地產", name: "四十年夢想宅" },
 
   // 第二輪收斂：題庫共用較少的核心標的，合併時維持事件與產業／資產類型的因果關係。
   // 台股：23 → 20
@@ -390,12 +382,11 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "脆脆社群平台": { category: "美股", name: "水龍頭成長股" },
   "瑞氣不足銀行債": { category: "美股", name: "大摩" },
   "矽谷不擠兌銀行": { category: "美股", name: "大摩" },
-  // 加密貨幣、期貨與房地產保留各自最有辨識度的核心標的。
+  // 加密貨幣與期貨保留各自最有辨識度的核心標的。
   "無聊韭猴NFT": { category: "加密貨幣", name: "橘貓幣" },
   "真的穩定幣": { category: "加密貨幣", name: "橘貓幣" },
   "八月速度與激情": { category: "ETF", name: "靈靈舞靈" },
   "大排長榮航運期貨": { category: "台股", name: "貨櫃三雄聯盟" },
-  "第二戶喘息宅": { category: "房地產", name: "四十年夢想宅" },
 
   // 最終收斂：300 題只使用少量核心標的，降低第一次遊玩的學習成本。
   "一滴不浪費水資源": { category: "台股", name: "節能設備受惠鏈" },
@@ -436,10 +427,7 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "永遠在線雲會議": { category: "美股", name: "水龍頭成長股" },
   "算力折舊科技巨頭": { category: "美股", name: "皮衣算力" },
 
-  // 房地產 2：自住型房產與收租型房產。
-  "空辦公室警報宅": { category: "房地產", name: "蛋黃收租小金庫" },
-
-  // 上線版 16 標的：台股 4、ETF 4、美股 4、加密貨幣 2、房地產 2。
+  // 上線版可交易標的只保留台股、ETF、美股與加密貨幣。
   "節能設備受惠鏈": { category: "ETF", name: "科技供應鏈ETF" },
   "國家隊防疫供應鏈": { category: "ETF", name: "靈靈舞靈" },
   "液冷伺服器聯盟": { category: "台股", name: "老AI解套聯盟" },
@@ -481,7 +469,6 @@ const steadyLabels = [
   (_moment: Moment, basket: { name: string }) => `只拿閒錢買${basket.name}`,
   (_moment: Moment, basket: { name: string }) => `分散配置${basket.name}`,
 ];
-const propertyBuyLabels = ["買一間", "準備自備款買一間", "另買一間", "評估後買下一間"];
 const boldLabels = [
   (moment: Moment) => `搶進${moment.asset.name}`,
   (moment: Moment) => `重押${moment.asset.name}`,
@@ -494,13 +481,11 @@ function makeChoices(moment: Moment, lensIndex: number): Choice[] {
   const basket = playableAsset(basketByKind[moment.kind]);
   const momentAsset = playableAsset(moment.asset);
   const simplifiedMoment = { ...moment, asset: momentAsset };
-  const boldR = moment.kind === "crypto" ? 4 : momentAsset.category === "期貨" ? 5 : moment.kind === "housing" ? 4 : 3;
-  const steadyIsProperty = basket.category === "房地產";
-  const boldIsProperty = momentAsset.category === "房地產";
+  const boldR = moment.kind === "crypto" ? 4 : momentAsset.category === "期貨" ? 5 : 3;
   return [
     { label: safeLabels[lensIndex](simplifiedMoment), desc: safeDescriptions[lensIndex](simplifiedMoment), action: safeAction, risk: "safe", minR: 1 },
-    { label: steadyIsProperty ? `${propertyBuyLabels[lensIndex]}${basket.name}` : steadyLabels[lensIndex](moment, basket), desc: steadyIsProperty ? `買一間${basket.name}，自備款與房貸分開計算。` : `用${basket.name}分散參與，不把消息當保證。`, action: steadyIsProperty ? "buy" : "invest", risk: "steady", minR: moment.kind === "crypto" || moment.kind === "housing" ? 3 : 2, ratio: .2 + lensIndex * .015, asset: basket },
-    { label: boldIsProperty ? `${propertyBuyLabels[lensIndex]}${momentAsset.name}` : boldLabels[lensIndex](simplifiedMoment), desc: boldIsProperty ? `整間買下「${momentAsset.name}」，獨立計算房貸與損益。` : `集中押注「${momentAsset.name}」，損益直接反映判斷。`, action: boldIsProperty ? "buy" : "invest", risk: "bold", minR: boldR, ratio: .44 + lensIndex * .035, asset: momentAsset },
+    { label: steadyLabels[lensIndex](moment, basket), desc: `用${basket.name}分散參與，不把消息當保證。`, action: "invest", risk: "steady", minR: moment.kind === "crypto" ? 3 : 2, ratio: .2 + lensIndex * .015, asset: basket },
+    { label: boldLabels[lensIndex](simplifiedMoment), desc: `集中押注「${momentAsset.name}」，損益直接反映判斷。`, action: "invest", risk: "bold", minR: boldR, ratio: .44 + lensIndex * .035, asset: momentAsset },
   ];
 }
 
@@ -513,7 +498,7 @@ function conciseContext(context: string) {
 const retiredAssets = new Set(["長天期公債ETF", "科技供應鏈ETF"]);
 const eligibleMoments = allMoments.filter((moment) => {
   const asset = playableAsset(moment.asset);
-  return moment.kind !== "housing" && asset.category !== "房地產" && !retiredAssets.has(asset.name);
+  return !retiredAssets.has(asset.name);
 });
 
 // 上線題庫保留 70 個通過多空、主標的與連動標的審查的核心主題；每個主題有四種判讀角度，共 280 題。

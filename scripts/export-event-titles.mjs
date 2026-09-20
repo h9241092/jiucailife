@@ -30,7 +30,6 @@ const kindLabels = {
   tech: "科技",
   market: "市場",
   crypto: "加密貨幣",
-  housing: "居住／房市",
   career: "職涯",
   macro: "總體經濟",
   meme: "迷因／投顧",

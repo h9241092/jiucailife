@@ -13,6 +13,7 @@ const currentSimulator = fs.readFileSync('scripts/simulate-current-game.mjs', 'u
 const simulationRunner = fs.readFileSync('scripts/run-current-simulation.mjs', 'utf8');
 const directionExporter = fs.readFileSync('scripts/export-core-event-directions.mjs', 'utf8');
 const titleExporter = fs.readFileSync('scripts/export-event-titles.mjs', 'utf8');
+const eventCatalogSource = fs.readFileSync('app/event-catalog.ts', 'utf8');
 const parsed = ts.createSourceFile('page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const home = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'Home');
 const handler = home.body.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'chooseIncomePath').getText(parsed);
@@ -53,6 +54,19 @@ test('v1.0.8 is consistent across the game, package and Wiki', () => {
   assert.equal(gameApi.GAME_VERSION, 'v1.0.8');
   assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.8');
   assert.match(wiki, /適用版本：`v1\.0\.8`/);
+});
+test('retired property and mortgage mechanics stay removed without changing credit or family loans', () => {
+  const retiredMechanics = [
+    'propertyReview', 'mortgageMonthsRemaining', 'monthlyMortgagePayment',
+    'serviceAnnualMortgages', 'annualPropertyCashflow', 'RENTAL_PROPERTY_NAME',
+    '四十年夢想宅', '蛋黃收租小金庫', '新青安',
+  ];
+  const activeSources = [source, eventCatalogSource, approximateSimulator, titleExporter];
+  for (const retired of retiredMechanics) {
+    assert(activeSources.every(text => !text.includes(retired)), retired);
+  }
+  assert.match(source, /familyDebt/);
+  assert.match(source, /creditLoanMonthsRemaining/);
 });
 test('producer Threads link is safe, focusable and pointer-enabled', () => {
   assert.match(source, /href="https:\/\/www\.threads\.com\/@kt48wu\?igshid=NTc4MTIwNjQ2YQ=" target="_blank" rel="noopener noreferrer"/);
