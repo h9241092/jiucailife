@@ -283,11 +283,11 @@ const lenses = [
     source: "轉傳三次後的原始消息",
     effect: {
       label: "流量陷阱",
-      detail: "C 選項流量收入 +50%、投資知識額外 −1；研究／觀察／追熱門判讀率分別 −2%／−8%／−12%。",
+      detail: "C 選項流量收入 +75%、投資知識額外 −1；研究／觀察／追熱門判讀率分別 −2%／−8%／−12%。",
       signalStrengthMultiplier: 1,
       primaryDurationBonusMonths: 0,
       readAccuracyModifiers: { research: -.02, observe: -.08, trend: -.12 },
-      trendCashMultiplier: 1.5,
+      trendCashMultiplier: 1.75,
       trendKnowledgeDelta: -1,
     },
   },

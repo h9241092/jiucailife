@@ -19,7 +19,7 @@ const home = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.
 const handler = home.body.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'chooseIncomePath').getText(parsed);
 const prefix = source.slice(0, home.getStart(parsed));
 const moduleSource = `${prefix}
-export { makeGame, familySupportAmount, familySupportChance, achievementsFor, GAME_VERSION };
+export { makeGame, familySupportAmount, familySupportChance, achievementsFor, lifeChoicesForEvent, traits, GAME_VERSION };
 export function runIncome(initial, path, suppliedRolls) {
   const game = initial;
   const rolls = [...suppliedRolls];
@@ -46,14 +46,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE111');
+  const game = gameApi.makeGame('', 'RELEASE112');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.1.1 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.1.1');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.1');
-  assert.match(wiki, /適用版本：`v1\.1\.1`/);
+test('v1.1.2 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.1.2');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.2');
+  assert.match(wiki, /適用版本：`v1\.1\.2`/);
 });
 test('retired property and mortgage mechanics stay removed without changing credit or family loans', () => {
   const retiredMechanics = [
@@ -152,11 +152,35 @@ test('mobile role profile uses a compact summary trigger and dismissible bottom 
   assert.match(mobileSheetCss, /max-height:min\(88dvh,760px\)/);
   assert.match(mobileSheetCss, /env\(safe-area-inset-bottom,0px\)/);
 });
-test('Wiki includes v1.1.1 figures and existing event effects', () => {
-  for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
+test('v1.1.2 balance figures stay synchronized across game, simulator and Wiki', () => {
+  const optimistic = gameApi.traits.find(([name]) => name === '天生樂觀')[2];
+  const frail = gameApi.traits.find(([name]) => name === '體弱多病')[2];
+  const brokenFamily = gameApi.traits.find(([name]) => name === '家破人亡')[2];
+  assert.equal(optimistic.stress,-10);
+  assert.equal(frail.healthRange[0],56);assert.equal(frail.healthRange[1],64);
+  assert.equal(brokenFamily.familyRange[0],30);assert.equal(brokenFamily.familyRange[1],46);
+  assert.match(source,/next\.gauges\.health = clamp\(next\.gauges\.health \+ 2\)/);
+  assert.match(source,/花時間陪伴處理<\/b><small>支出少量現金、家庭關係 \+10、壓力 −3、健康 \+2/);
+  assert.match(source,/isSurpriseTarget \? 1\.25 \+ random\(\) \* \.5/);
+  assert.match(source,/波動放大至 1\.25～1\.75 倍/g);
+  assert.match(approximateSimulator,/multiplier \* \(1\.25 \+ random\(\) \* \.5\)/);
+  for(const expected of ['1.25～1.75 倍','1.75 倍','健康 +2','壓力 −10','56～64','30～46']) assert(wiki.includes(expected),expected);
+});
+test('everyone becomes an expert pays 1.75 times trend income in game and simulator', () => {
+  const event = catalog.buildLifeEventDeck(106,20).find(item => item.lensIndex === 2);
+  assert(event);
+  assert.equal(event.lensEffect.trendCashMultiplier,1.75);
+  assert.match(event.lensEffect.detail,/\+75%/);
+  const trendChoice = gameApi.lifeChoicesForEvent(event).find(choice => choice.intelAction === 'trend');
+  const baseCash = { tech:28000,market:24000,crypto:36000,career:20000,macro:24000,meme:40000 }[event.kind];
+  assert.equal(trendChoice.intelEffects.cash,Math.round(baseCash * 1.75));
+  assert.match(approximateSimulator,/event\.lensEffect\.trendCashMultiplier/);
+});
+test('Wiki includes existing v1.1.2 figures and event effects', () => {
+  for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });
-test('career event prices and penalties stay synchronized in v1.1.1', () => {
+test('career event prices and penalties stay synchronized in v1.1.2', () => {
   assert.match(source, /reputation >= 80 \? 300000 : reputation >= 50 \? 160000 : 100000/);
   assert.match(source, /堅稱只是長期布局，繼續喊/);
   assert.match(source, /投資知識 −3/);
@@ -171,7 +195,7 @@ test('retired position trade dialog and styles stay removed', () => {
     assert(!css.includes(retired), retired);
   }
 });
-test('local simulation and event export tools follow the current v1.1.1 rules', () => {
+test('local simulation and event export tools follow the current v1.1.2 rules', () => {
   for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
   for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
   assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);

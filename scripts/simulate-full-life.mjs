@@ -58,9 +58,9 @@ const TRAITS = [
   ["數字敏感", { knowledge: 8 }],
   ["家族靠山", { family: 10 }],
   ["信用小白", { credit: -8 }],
-  ["天生樂觀", { stress: -8 }],
-  ["體弱多病", { healthRange: [60, 68] }],
-  ["家破人亡", { familyRange: [38, 54] }],
+  ["天生樂觀", { stress: -10 }],
+  ["體弱多病", { healthRange: [56, 64] }],
+  ["家破人亡", { familyRange: [30, 46] }],
 ];
 const PAPER_HANDS_CHANCE_DENOMINATOR = 6;
 const INITIAL_RANGES = {
@@ -285,7 +285,7 @@ function marketMonth(game, random, surprise = null) {
     if (surprise?.key === asset.key) {
       const truthful = random() < .75;
       intendedDown = surprise.direction === "bearish" ? truthful : !truthful;
-      multiplier = Math.min(3, multiplier * (1.2 + random() * .5));
+      multiplier = Math.min(3, multiplier * (1.25 + random() * .5));
     }
     let moveRate;
     if (asset.category === "加密貨幣") {
@@ -1010,13 +1010,18 @@ function play(run) {
         if (action) {
           game.intelChoices[action] += 1;
           const effects = INTEL_EFFECTS[event.kind][action];
+          const trendCash = action === "trend"
+            ? Math.round((effects.cash ?? 0) * (event.lensEffect.trendCashMultiplier ?? 1))
+            : effects.cash ?? 0;
+          const knowledgeDelta = (effects.knowledge ?? 0)
+            + (action === "trend" ? event.lensEffect.trendKnowledgeDelta ?? 0 : 0);
           if (action === "research") game.cash -= 1000;
-          else game.cash += effects.cash ?? 0;
+          else game.cash += trendCash;
           const knowledgeBeforeChoice = game.knowledge;
-          if ((effects.knowledge ?? 0) < 0) game.knowledge = clamp(game.knowledge + effects.knowledge);
-          else addKnowledge(game, effects.knowledge ?? 0);
+          if (knowledgeDelta < 0) game.knowledge = clamp(game.knowledge + knowledgeDelta);
+          else addKnowledge(game, knowledgeDelta);
           if (action === "trend") {
-            game.totalTrendIncome += effects.cash ?? 0;
+            game.totalTrendIncome += trendCash;
             game.totalTrendKnowledgeLost += Math.max(0, knowledgeBeforeChoice - game.knowledge);
           }
           game.stress = clamp(game.stress + (effects.stress ?? 0));

@@ -262,7 +262,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.1";
+const GAME_VERSION = "v1.1.2";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -1348,9 +1348,9 @@ const traits = [
   ["數字敏感", "投資知識較高，穩健選項成功率提升", { knowledge: 8 }],
   ["家族靠山", "家庭關係 +10；起始現金額外 +20 萬元；家裡資助通過時，每年獲得 50 萬元", { family: 10 }],
   ["信用小白", "信用較低，但沒有任何歷史包袱", { credit: -8 }],
-  ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -8 }],
-  ["體弱多病", "初始健康只有 60～68，市場以外也有風險", { healthRange: [60, 68] }],
-  ["家破人亡", "初始家庭關係只有 38～54，家裡未必接得住你", { familyRange: [38, 54] }],
+  ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -10 }],
+  ["體弱多病", "初始健康只有 56～64，市場以外也有風險", { healthRange: [56, 64] }],
+  ["家破人亡", "初始家庭關係只有 30～46，家裡未必接得住你", { familyRange: [30, 46] }],
 ] as const;
 const PAPER_HANDS_CHANCE_DENOMINATOR = 6;
 const PAPER_HANDS_EFFECT = "不影響初始能力，但自主減倉時只能全部清倉";
@@ -1479,7 +1479,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
     const intendedDeclined = isSurpriseTarget
       ? surprise!.direction === "bearish" ? truthful : !truthful
       : random() < downChance;
-    const multiplier = Math.min(3, (isSurpriseTarget ? 1.2 + random() * .5 : 1) * signalMoveMultiplier);
+    const multiplier = Math.min(3, (isSurpriseTarget ? 1.25 + random() * .5 : 1) * signalMoveMultiplier);
     const dailyMovement = isDailyCompoundedAsset(asset.category)
       ? createDailyCompoundedMove(asset.category, intendedDeclined, multiplier, random)
       : null;
@@ -1578,7 +1578,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
         declined: surprise.direction === "bearish" ? truthful : !truthful,
         baseRate: 0,
         moveRate: 0,
-        multiplier: 1.2 + random() * .5,
+        multiplier: 1.25 + random() * .5,
         before: 0,
         after: 0,
       };
@@ -3122,7 +3122,7 @@ export default function Home() {
       next.cash -= cost;
       next.gauges.family = clamp(next.gauges.family + 10);
       next.gauges.stress = clamp(next.gauges.stress - 3);
-      next.gauges.health = clamp(next.gauges.health + 1);
+      next.gauges.health = clamp(next.gauges.health + 2);
       historyTitle = `你花時間陪家人處理「${familyEvent.title}」`;
     } else if (choice === "money") {
       const cost = Math.min(Math.max(0, game.cash), Math.max(20000, Math.round(game.income * .05 / 1000) * 1000));
@@ -3618,7 +3618,7 @@ export default function Home() {
             <div className="surprise-signal"><span>{quarterSurprise.direction === "bullish" ? "利多" : "利空"}</span><b>影響標的｜{quarterSurprise.targetCategory} · 「{quarterSurprise.targetName}」</b><AssetQuoteLabel asset={{ category: quarterSurprise.targetCategory, name: quarterSurprise.targetName }} game={game} /></div>
             <h1>{quarterSurprise.title}</h1><p className="lede">{quarterSurprise.body}</p>
             <div className="quote">「{quarterSurprise.quote}」<span>— {quarterSurprise.source}</span></div>
-            <div className="surprise-rule"><span>成真：順消息方向、波動放大至 1.2～1.7 倍</span><span>反轉：逆消息方向、波動放大至 1.2～1.7 倍</span></div>
+            <div className="surprise-rule"><span>成真：順消息方向、波動放大至 1.25～1.75 倍</span><span>反轉：逆消息方向、波動放大至 1.25～1.75 倍</span></div>
             <p className="question">{surprisePosition ? "消息尚未證實，你要怎麼處理這筆持倉？" : "消息尚未證實，你目前沒有這項資產，要怎麼回應？"}</p>
             <div className={`choices surprise-choices ${surprisePosition ? "surprise-position-actions" : "surprise-watch-actions"}`}>
               {surprisePosition ? <>
@@ -3845,7 +3845,7 @@ export default function Home() {
           <p>{familyEvent.body}</p>
           <div className="family-event-quote">「{familyEvent.quote}」</div>
           <div className="family-choice-list">
-            <button onClick={() => resolveFamilyEvent("time")}><b>花時間陪伴處理</b><small>支出少量現金、家庭關係 +10、壓力 −3、健康 +1</small></button>
+            <button onClick={() => resolveFamilyEvent("time")}><b>花時間陪伴處理</b><small>支出少量現金、家庭關係 +10、壓力 −3、健康 +2</small></button>
             <button onClick={() => resolveFamilyEvent("money")}><b>出錢支援家裡</b><small>支出較多現金、家庭關係 +7、壓力 +2、信用 +1</small></button>
             <button className="family-decline" onClick={() => resolveFamilyEvent("decline")}><b>工作優先，先婉拒</b><small>保住現金、家庭關係 −8、壓力 +4</small></button>
           </div>
