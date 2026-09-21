@@ -9,6 +9,8 @@ const eventTypes = new Set([
   "event_presented",
   "event_choice",
   "income_choice",
+  "career_event",
+  "career_news_missed",
   "trade",
   "debt_action",
   "surprise_resolved",
@@ -23,7 +25,7 @@ const allowedDataKeys = new Set([
   "trait", "specialTrait", "initialCash", "initialHealth", "initialStress", "initialFamily", "initialKnowledge", "initialCredit",
   "eventId", "eventKind", "choice", "action", "response", "reason", "intelAction", "outcome", "category", "target", "linkedTarget", "marketScope", "affectedTargets",
   "side", "ratio", "amount", "incomePath", "income", "direction", "truthful", "priceMove", "severity",
-  "cash", "assetValue", "debt", "netWorth", "health", "stress", "family", "knowledge", "credit", "ending", "earlyRetirement", "achievementIds",
+  "cash", "assetValue", "debt", "netWorth", "health", "stress", "family", "knowledge", "credit", "kolReputation", "hiddenNewsRemaining", "tradeLockedUntilQuarter", "tradeLocked", "ending", "earlyRetirement", "achievementIds",
 ]);
 
 type MetricEntry = { name: string; dimension?: string; total?: number };
@@ -60,6 +62,8 @@ function metricsForEvent(eventType: string, data: Record<string, string | number
     metrics.push({ name: "event_choice_detail", dimension: `${dimension(data.eventId, "unknown")}:${dimension(data.choice, "unknown")}` });
   }
   if (eventType === "income_choice") metrics.push({ name: "income_choices", dimension: dimension(data.incomePath) });
+  if (eventType === "career_event") metrics.push({ name: "career_event_choices", dimension: `${dimension(data.eventId, "unknown")}:${dimension(data.choice, "unknown")}` });
+  if (eventType === "career_news_missed") metrics.push({ name: "career_news_missed", dimension: dimension(data.reason) });
   if (eventType === "trade") metrics.push({ name: "trades", dimension: `${dimension(data.side)}:${dimension(data.target, "unknown")}` });
   if (eventType === "debt_action") metrics.push({ name: "debt_actions", dimension: dimension(data.action) });
   if (eventType === "surprise_resolved") metrics.push({ name: "surprises", dimension: `${dimension(data.direction)}:${dimension(data.action)}` });

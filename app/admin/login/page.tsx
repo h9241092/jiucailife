@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export const dynamic = "force-dynamic";
 
 export default async function AdminLoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -12,7 +14,7 @@ export default async function AdminLoginPage({ searchParams }: { searchParams: P
       </label>
       {error ? <p role="alert" style={{ color: "#ff7b8e" }}>密碼不正確，請再試一次。</p> : null}
       <button type="submit" style={{ width: "100%", marginTop: 20, padding: 13, border: 0, borderRadius: 10, background: "#36d6b1", color: "#05110e", fontWeight: 800, fontSize: 17 }}>登入後台</button>
-      <a href="/" style={{ display: "block", marginTop: 16, textAlign: "center", color: "#9fb0cc" }}>返回遊戲</a>
+      <Link href="/" style={{ display: "block", marginTop: 16, textAlign: "center", color: "#9fb0cc" }}>返回遊戲</Link>
     </form>
   </main>;
 }

@@ -28,6 +28,24 @@ const BREAKOUT_STREAK_TARGET = 3;
 const BREAKOUT_UNLOCK_CHANCE = .18;
 const BREAKOUT_MOVE_MULTIPLIER = 1.8;
 
+const CAREER_EVENT_LABELS = {
+  workOvertime: "主管詢問是否加班",
+  workCoworkerLeave: "同事臨時請假",
+  workPromotion: "店長提出升遷",
+  kolSponsorship: "品牌主動找上門做業配",
+  kolViralVideo: "舊影片突然爆紅",
+  kolCrashBacklash: "先前喊過的標的突然重挫",
+  kolInvestigation: "公開喊單遭調查",
+};
+const CAREER_EVENT_IDS = Object.keys(CAREER_EVENT_LABELS);
+const CAREER_EVENT_LIMITS = {
+  workCoworkerLeave: 3,
+  kolSponsorship: 3,
+  kolViralVideo: 2,
+  kolCrashBacklash: 3,
+  kolInvestigation: 2,
+};
+
 const POLICIES = [
   { id: "safe", label: "穩健打工族" },
   { id: "balanced", label: "均衡配置" },
@@ -166,7 +184,7 @@ function intelAction(game, policy, random) {
   return ["research", "observe", "trend"][Math.floor(random() * 3)];
 }
 
-function visibleDirection(game, action, role, direction, eventHash, random) {
+function visibleDirection(game, action, role, direction, eventHash) {
   const roll = eventHash % 10000 / 10000;
   if (action === "research" && role === "primary") {
     const accuracy = clamp(.78 + game.knowledge * .0017, .78, .95);
@@ -246,6 +264,14 @@ function tradeOnSignal(game, policy, target, perceived, eventIndex, random) {
 }
 
 function marketMonth(game, random, surprise = null) {
+  const activeKeys = new Set(game.signals.filter((signal) => signal.remaining > 0).map((signal) => signal.key));
+  for (const key of activeKeys) {
+    const relevantSignals = game.signals.filter((signal) => signal.key === key && signal.remaining > 0);
+    const signedStrength = relevantSignals.reduce((sum, signal) => sum + (signal.direction === "bearish" ? -signal.strength : signal.strength), 0);
+    const noise = (hash(`${game.seedCode}:quote:${game.marketMonthsElapsed}:${key}`) % 10001 / 10000 - .5) * .024;
+    const quoteMove = clamp(signedStrength * .32 + noise, -.18, .18);
+    game.quoteFactors.set(key, (game.quoteFactors.get(key) ?? 1) * (1 + quoteMove));
+  }
   let marketMove = 0;
   for (const asset of game.assets.values()) {
     const relevant = game.signals.filter((signal) => signal.key === asset.key && signal.remaining > 0);
@@ -285,6 +311,7 @@ function marketMonth(game, random, surprise = null) {
   }
   game.annualMarketMove += marketMove;
   game.signals = game.signals.map((signal) => ({ ...signal, remaining: signal.remaining - 1 })).filter((signal) => signal.remaining > 0);
+  game.marketMonthsElapsed += 1;
 }
 
 function closeQuarter(game, random) {
@@ -320,18 +347,266 @@ const kolTrackRecordIncomeBonus = (accuracy) => accuracy === null
   ? 0
   : Math.round(clamp((accuracy - .5) * 600000, -90000, 300000) / 1000) * 1000;
 
+function careerEventChance(game) {
+  if (game.currentIncomePath === "work") {
+    if (game.parttimeStreak <= 1) return .12;
+    if (game.parttimeStreak === 2) return .14;
+    if (game.parttimeStreak === 3) return .16;
+    return .19;
+  }
+  if (game.currentIncomePath === "kol") {
+    if (game.kolReputation < 20) return .12;
+    if (game.kolReputation < 50) return .15;
+    if (game.kolReputation < 80) return .17;
+    return .19;
+  }
+  return 0;
+}
+
+function careerEventAvailable(game, id) {
+  const limit = CAREER_EVENT_LIMITS[id];
+  return limit === undefined || (game.careerEventCounts[id] ?? 0) < limit;
+}
+
+function quarterIndex(game, season) {
+  return (game.year - 1) * 4 + season;
+}
+
+function crashedEndorsement(game, season) {
+  const currentQuarter = quarterIndex(game, season);
+  return game.kolEndorsements.find((endorsement) => {
+    const age = currentQuarter - endorsement.quarter;
+    const currentQuote = game.quoteFactors.get(endorsement.key) ?? 1;
+    return !endorsement.resolved && age >= 1 && age <= 4 && currentQuote <= endorsement.quote * .85;
+  }) ?? null;
+}
+
+function promotionShare(game) {
+  return Math.min(.85, .25 + Math.max(0, game.parttimeStreak - 3) * .1 + Math.max(0, game.workConsecutiveYears - 2) * .05);
+}
+
+function chooseCareerOption(game, policy, id, random) {
+  if (policy === "random") return random() < .5 ? "A" : "B";
+  if (id === "workOvertime") {
+    if (policy === "aggressive") return "A";
+    if (policy === "balanced") return game.health >= 48 && game.stress <= 78 ? "A" : "B";
+    return game.health >= 62 && game.stress <= 66 ? "A" : "B";
+  }
+  if (id === "workCoworkerLeave") {
+    if (policy === "aggressive") return "A";
+    if (policy === "balanced") return game.health >= 52 && game.stress <= 72 ? "A" : "B";
+    return game.health >= 68 && game.stress <= 62 ? "A" : "B";
+  }
+  if (id === "workPromotion") {
+    if (policy === "aggressive") return "A";
+    if (policy === "balanced") return game.health > 38 && game.stress < 84 ? "A" : "B";
+    return game.health > 48 && game.stress < 74 ? "A" : "B";
+  }
+  if (id === "kolSponsorship") return policy === "aggressive" ? "A" : "B";
+  if (id === "kolViralVideo") {
+    if (policy === "aggressive") return "A";
+    if (policy === "balanced") return game.health >= 55 && game.stress <= 70 ? "A" : "B";
+    return "B";
+  }
+  if (id === "kolCrashBacklash") return policy === "aggressive" ? "B" : "A";
+  if (id === "kolInvestigation") return policy === "aggressive" ? "B" : "A";
+  return "B";
+}
+
+function addCareerIncome(game, amount, channel) {
+  game.careerEventCashIncome += amount;
+  if (channel === "work") {
+    game.workCareerIncome += amount;
+    game.income += amount;
+  } else {
+    game.kolCareerIncome += amount;
+    game.cash += amount;
+  }
+}
+
+function payCareerExpense(game, amount) {
+  const paid = Math.min(Math.max(0, game.cash), amount);
+  const financed = amount - paid;
+  game.cash -= paid;
+  game.generalDebt += financed;
+  if (financed > 0) game.creditMonths = Math.max(game.creditMonths, CREDIT_TERM_MONTHS);
+  game.careerEventExpenses += amount;
+  game.careerEventFinancedExpenses += financed;
+}
+
+function recordCareerEvent(game, id, option) {
+  game.careerEventsTriggered += 1;
+  game.careerEventCounts[id] += 1;
+  game.careerEventChoices[id][option] += 1;
+}
+
+function careerEventPool(game, season) {
+  if (game.currentIncomePath === "work") {
+    const regular = [];
+    if (!game.workManager) regular.push("workOvertime");
+    if (careerEventAvailable(game, "workCoworkerLeave")) regular.push("workCoworkerLeave");
+    const promotionEligible = !game.workManager
+      && game.parttimeStreak >= 3
+      && game.workConsecutiveYears >= 2
+      && game.health > 30;
+    return { regular, promotionEligible, crash: null };
+  }
+  if (game.currentIncomePath === "kol") {
+    const regular = [];
+    if (game.kolReputation >= 20 && careerEventAvailable(game, "kolSponsorship")) regular.push("kolSponsorship");
+    if (game.kolYears >= 1 && careerEventAvailable(game, "kolViralVideo")) regular.push("kolViralVideo");
+    const crash = careerEventAvailable(game, "kolCrashBacklash") ? crashedEndorsement(game, season) : null;
+    if (crash) regular.push("kolCrashBacklash");
+    if (game.kolReputation >= 30
+      && game.publicShoutCount >= 3
+      && game.tradeSuspensionQuarters <= 0
+      && game.regulatoryCooldownQuarters <= 0
+      && careerEventAvailable(game, "kolInvestigation")) regular.push("kolInvestigation");
+    return { regular, promotionEligible: false, crash };
+  }
+  return { regular: [], promotionEligible: false, crash: null };
+}
+
+function maybeCareerEvent(game, policy, season, random) {
+  game.hideNextNewsCount = 0;
+  const pool = careerEventPool(game, season);
+  if (!pool.regular.length && !pool.promotionEligible) return null;
+  game.careerEligibleQuarters += 1;
+  if (random() >= careerEventChance(game)) return null;
+
+  let id;
+  if (pool.promotionEligible && random() < promotionShare(game)) id = "workPromotion";
+  else if (pool.regular.length) id = pool.regular[Math.floor(random() * pool.regular.length)];
+  else id = "workPromotion";
+  const option = chooseCareerOption(game, policy, id, random);
+  recordCareerEvent(game, id, option);
+
+  if (id === "workOvertime") {
+    if (option === "A") {
+      const bonus = Math.round(game.workBaseIncomeThisYear * .12 / 1000) * 1000;
+      addCareerIncome(game, bonus, "work");
+      game.health = clamp(game.health - 1);
+      game.stress = clamp(game.stress + 3);
+      game.hideNextNewsCount += 2;
+      game.careerEventOutcomes.overtimeAccepted += 1;
+    } else game.careerEventOutcomes.overtimeDeclined += 1;
+  } else if (id === "workCoworkerLeave") {
+    if (option === "A") {
+      const bonus = Math.round(game.workBaseIncomeThisYear * .06 / 1000) * 1000;
+      addCareerIncome(game, bonus, "work");
+      game.health = clamp(game.health - 1);
+      game.stress = clamp(game.stress + 2);
+      game.hideNextNewsCount += 1;
+      game.careerEventOutcomes.coverShiftAccepted += 1;
+    } else {
+      game.stress = clamp(game.stress - 1);
+      game.careerEventOutcomes.coverShiftDeclined += 1;
+    }
+  } else if (id === "workPromotion") {
+    game.careerEventOutcomes.promotionsOffered += 1;
+    if (option === "A") {
+      game.workManager = true;
+      game.careerEventOutcomes.promotionsAccepted += 1;
+    } else {
+      game.health = clamp(game.health + 1);
+      game.stress = clamp(game.stress - 3);
+      game.careerEventOutcomes.promotionsDeclined += 1;
+    }
+  } else if (id === "kolSponsorship") {
+    const fullFee = game.kolReputation < 50 ? 100000 : game.kolReputation < 80 ? 160000 : 300000;
+    if (option === "A") {
+      addCareerIncome(game, fullFee, "kol");
+      game.kolReputation = clamp(game.kolReputation + 4);
+      game.credit = clamp(game.credit - 3);
+      game.knowledge = clamp(game.knowledge - 1);
+      game.careerEventOutcomes.sponsorshipDirect += 1;
+    } else {
+      addCareerIncome(game, Math.round(fullFee * .6 / 1000) * 1000, "kol");
+      addKnowledge(game, 2);
+      game.credit = clamp(game.credit + 2);
+      game.health = clamp(game.health - 1);
+      game.stress = clamp(game.stress + 2);
+      game.hideNextNewsCount += 1;
+      game.careerEventOutcomes.sponsorshipVerified += 1;
+    }
+  } else if (id === "kolViralVideo") {
+    if (option === "A") {
+      addCareerIncome(game, 100000, "kol");
+      game.kolReputation = clamp(game.kolReputation + 8);
+      game.health = clamp(game.health - 3);
+      game.stress = clamp(game.stress + 6);
+      game.hideNextNewsCount += 1;
+      game.careerEventOutcomes.viralFollowup += 1;
+    } else {
+      addCareerIncome(game, 30000, "kol");
+      game.kolReputation = clamp(game.kolReputation + 3);
+      game.health = clamp(game.health + 1);
+      game.stress = clamp(game.stress - 2);
+      game.careerEventOutcomes.viralSteady += 1;
+    }
+  } else if (id === "kolCrashBacklash") {
+    if (pool.crash) pool.crash.resolved = true;
+    if (option === "A") {
+      game.kolReputation = clamp(game.kolReputation - 10);
+      game.credit = clamp(game.credit + 4);
+      addKnowledge(game, 2);
+      game.stress = clamp(game.stress + 3);
+      game.careerEventOutcomes.crashApologies += 1;
+    } else {
+      addCareerIncome(game, 60000, "kol");
+      game.kolReputation = clamp(game.kolReputation + 5);
+      game.credit = clamp(game.credit - 6);
+      game.knowledge = clamp(game.knowledge - 3);
+      game.stress = clamp(game.stress + 7);
+      game.publicShoutCount += 1;
+      game.maxPublicShoutCount = Math.max(game.maxPublicShoutCount, game.publicShoutCount);
+      game.careerEventOutcomes.crashDoubleDowns += 1;
+    }
+  } else if (id === "kolInvestigation") {
+    game.careerEventOutcomes.investigations += 1;
+    if (option === "A") {
+      payCareerExpense(game, 100000);
+      game.kolReputation = clamp(game.kolReputation - 8);
+      game.credit = clamp(game.credit + 2);
+      game.stress = clamp(game.stress + 4);
+      game.tradeSuspensionQuarters = Math.max(game.tradeSuspensionQuarters, 2);
+      game.careerEventOutcomes.investigationCooperated += 1;
+    } else {
+      game.kolReputation = clamp(game.kolReputation + 4);
+      if (random() < .4) {
+        game.credit = clamp(game.credit - 2);
+        game.stress = clamp(game.stress + 3);
+        game.regulatoryCooldownQuarters = Math.max(game.regulatoryCooldownQuarters, 2);
+        game.careerEventOutcomes.investigationEscaped += 1;
+      } else {
+        payCareerExpense(game, 500000);
+        game.kolReputation = clamp(game.kolReputation - 15);
+        game.credit = clamp(game.credit - 8);
+        game.stress = clamp(game.stress + 10);
+        game.tradeSuspensionQuarters = Math.max(game.tradeSuspensionQuarters, 4);
+        game.careerEventOutcomes.investigationPunished += 1;
+      }
+    }
+  }
+
+  return { id, option, label: CAREER_EVENT_LABELS[id] };
+}
+
 function chooseIncome(game, policy, random) {
   const path = incomePath(game, policy, random);
+  game.currentIncomePath = path;
   game.yearsStarted += 1;
   if (path === "work") {
     game.parttimeYears += 1;
     game.familySupportStreak = 0;
     game.parttimeStreak += 1;
     game.workConsecutiveYears += 1;
-    game.income = game.parttimeStreak < 3 ? 480000 : Math.round(600000 * Math.pow(1.04, game.parttimeStreak - 3) / 1000) * 1000;
+    const baseIncome = game.parttimeStreak < 3 ? 480000 : Math.round(600000 * Math.pow(1.04, game.parttimeStreak - 3) / 1000) * 1000;
+    game.income = game.workManager ? Math.round(baseIncome * 1.18 / 1000) * 1000 : baseIncome;
+    game.workBaseIncomeThisYear = game.income;
     if (game.parttimeStreak >= 3) game.workTenureProtected = true;
-    game.health = clamp(game.health - workHealthCost(game.workConsecutiveYears));
-    game.stress = clamp(game.stress + 8);
+    game.health = clamp(game.health - workHealthCost(game.workConsecutiveYears) - (game.workManager ? 1 : 0));
+    game.stress = clamp(game.stress + 8 + (game.workManager ? 3 : 0));
   } else if (path === "kol") {
     game.kolYears += 1;
     game.familySupportStreak = 0;
@@ -561,6 +836,7 @@ function makeGame(seedCode) {
   const familyRange = bonus.familyRange ?? INITIAL_RANGES.family;
   const paperHands = hash(`${seedCode}:special:paper-hands`) % PAPER_HANDS_CHANCE_DENOMINATOR === 0;
   return {
+    seedCode,
     year: 1,
     cash: STARTING_CASH + (trait[0] === "家族靠山" ? FAMILY_BACKER_STARTING_CASH_BONUS : 0),
     assets: new Map(),
@@ -594,6 +870,50 @@ function makeGame(seedCode) {
     parttimeStreak: 0,
     workConsecutiveYears: 0,
     workTenureProtected: false,
+    workManager: false,
+    currentIncomePath: null,
+    workBaseIncomeThisYear: 0,
+    careerEligibleQuarters: 0,
+    careerEventsTriggered: 0,
+    careerEventCounts: Object.fromEntries(CAREER_EVENT_IDS.map((id) => [id, 0])),
+    careerEventChoices: Object.fromEntries(CAREER_EVENT_IDS.map((id) => [id, { A: 0, B: 0 }])),
+    careerEventOutcomes: {
+      overtimeAccepted: 0,
+      overtimeDeclined: 0,
+      coverShiftAccepted: 0,
+      coverShiftDeclined: 0,
+      promotionsOffered: 0,
+      promotionsAccepted: 0,
+      promotionsDeclined: 0,
+      sponsorshipDirect: 0,
+      sponsorshipVerified: 0,
+      viralFollowup: 0,
+      viralSteady: 0,
+      crashApologies: 0,
+      crashDoubleDowns: 0,
+      investigations: 0,
+      investigationCooperated: 0,
+      investigationEscaped: 0,
+      investigationPunished: 0,
+    },
+    careerEventCashIncome: 0,
+    workCareerIncome: 0,
+    kolCareerIncome: 0,
+    careerEventExpenses: 0,
+    careerEventFinancedExpenses: 0,
+    hiddenNewsCount: 0,
+    hiddenNewsByCareer: 0,
+    hiddenNewsByManager: 0,
+    hiddenNewsBySuspension: 0,
+    tradeLockedQuarterCount: 0,
+    hideNextNewsCount: 0,
+    tradeSuspensionQuarters: 0,
+    regulatoryCooldownQuarters: 0,
+    publicShoutCount: 0,
+    maxPublicShoutCount: 0,
+    kolEndorsements: [],
+    quoteFactors: new Map(),
+    marketMonthsElapsed: 0,
     illnessCooldown: 0,
     signals: [],
     yearsStarted: 0,
@@ -669,24 +989,40 @@ function play(run) {
     }
 
     for (let season = 0; season < 4; season += 1) {
+      maybeCareerEvent(game, policy.id, season, random);
+      if (game.health <= 0) break;
       for (let eventInSeason = 0; eventInSeason < 2; eventInSeason += 1) {
         const eventIndex = (year - 1) * EVENTS_PER_YEAR + season * 2 + eventInSeason;
         const event = deck[eventIndex];
-        const action = intelAction(game, policy.id, random);
-        game.intelChoices[action] += 1;
-        const effects = INTEL_EFFECTS[event.kind][action];
-        if (action === "research") game.cash -= 1000;
-        else game.cash += effects.cash ?? 0;
-        const knowledgeBeforeChoice = game.knowledge;
-        if ((effects.knowledge ?? 0) < 0) game.knowledge = clamp(game.knowledge + effects.knowledge);
-        else addKnowledge(game, effects.knowledge ?? 0);
-        if (action === "trend") {
-          game.totalTrendIncome += effects.cash ?? 0;
-          game.totalTrendKnowledgeLost += Math.max(0, knowledgeBeforeChoice - game.knowledge);
+        const hiddenBySuspension = game.tradeSuspensionQuarters > 0;
+        const hiddenByCareer = game.hideNextNewsCount > 0;
+        const hiddenByManager = game.currentIncomePath === "work" && game.workManager && eventInSeason === 1;
+        const hidden = hiddenBySuspension || hiddenByCareer || hiddenByManager;
+        if (hiddenByCareer) game.hideNextNewsCount = Math.max(0, game.hideNextNewsCount - 1);
+        if (hidden) {
+          game.hiddenNewsCount += 1;
+          if (hiddenBySuspension) game.hiddenNewsBySuspension += 1;
+          else if (hiddenByCareer) game.hiddenNewsByCareer += 1;
+          else game.hiddenNewsByManager += 1;
         }
-        game.stress = clamp(game.stress + (effects.stress ?? 0));
-        game.health = clamp(game.health + (effects.health ?? 0));
-        game.credit = clamp(game.credit + (effects.credit ?? 0));
+
+        const action = hidden ? null : intelAction(game, policy.id, random);
+        if (action) {
+          game.intelChoices[action] += 1;
+          const effects = INTEL_EFFECTS[event.kind][action];
+          if (action === "research") game.cash -= 1000;
+          else game.cash += effects.cash ?? 0;
+          const knowledgeBeforeChoice = game.knowledge;
+          if ((effects.knowledge ?? 0) < 0) game.knowledge = clamp(game.knowledge + effects.knowledge);
+          else addKnowledge(game, effects.knowledge ?? 0);
+          if (action === "trend") {
+            game.totalTrendIncome += effects.cash ?? 0;
+            game.totalTrendKnowledgeLost += Math.max(0, knowledgeBeforeChoice - game.knowledge);
+          }
+          game.stress = clamp(game.stress + (effects.stress ?? 0));
+          game.health = clamp(game.health + (effects.health ?? 0));
+          game.credit = clamp(game.credit + (effects.credit ?? 0));
+        }
 
         const targets = targetsOf(event);
         const eventSignalSeed = seed ^ hash(`${event.id}:${year}:${season}:${eventInSeason}`);
@@ -694,22 +1030,35 @@ function play(run) {
         const primaryTarget = targets[0];
         const primaryKey = `${primaryTarget.category}:${primaryTarget.name}`;
         const primaryHash = hash(`${seed}:${event.id}:${year}:${season}:${eventInSeason}:${primaryKey}`);
-        const perceived = visibleDirection(game, action, "primary", direction, primaryHash, random);
+        const perceived = action ? visibleDirection(game, action, "primary", direction, primaryHash) : null;
         const readAttempted = perceived !== null;
         const readCorrect = readAttempted && perceived === direction;
-        const streak = readCorrect ? game.correctSignalStreak + 1 : 0;
-        const breakoutEligible = readCorrect && streak >= BREAKOUT_STREAK_TARGET && direction === "bullish";
+        const streak = hidden ? game.correctSignalStreak : readCorrect ? game.correctSignalStreak + 1 : 0;
+        const breakoutEligible = !hidden && readCorrect && streak >= BREAKOUT_STREAK_TARGET && direction === "bullish";
         const breakoutUnlocked = breakoutEligible && random() < BREAKOUT_UNLOCK_CHANCE;
-        const foresightUnlocked = readCorrect && game.knowledge >= KNOWLEDGE_FORESIGHT_LEVEL && random() < FORESIGHT_CHANCE;
-        game.annualDirectionalReads += readAttempted ? 1 : 0;
-        game.annualCorrectReads += readCorrect ? 1 : 0;
-        game.totalDirectionalReads += readAttempted ? 1 : 0;
-        game.totalCorrectReads += readCorrect ? 1 : 0;
-        game.maxCorrectSignalStreak = Math.max(game.maxCorrectSignalStreak, streak);
-        game.correctSignalStreak = breakoutUnlocked ? 0 : streak;
+        const foresightUnlocked = !hidden && readCorrect && game.knowledge >= KNOWLEDGE_FORESIGHT_LEVEL && random() < FORESIGHT_CHANCE;
+        if (!hidden) {
+          game.annualDirectionalReads += readAttempted ? 1 : 0;
+          game.annualCorrectReads += readCorrect ? 1 : 0;
+          game.totalDirectionalReads += readAttempted ? 1 : 0;
+          game.totalCorrectReads += readCorrect ? 1 : 0;
+          game.maxCorrectSignalStreak = Math.max(game.maxCorrectSignalStreak, streak);
+          game.correctSignalStreak = breakoutUnlocked ? 0 : streak;
+        }
         if (breakoutUnlocked) game.breakoutOpportunities += 1;
         if (foresightUnlocked) game.foresightSignals += 1;
         if (readCorrect && game.knowledge >= KNOWLEDGE_SIGNAL_BOOST_LEVEL) game.knowledgeBoostedSignals += 1;
+
+        if (action === "trend") {
+          game.publicShoutCount += 1;
+          game.maxPublicShoutCount = Math.max(game.maxPublicShoutCount, game.publicShoutCount);
+          game.kolEndorsements.push({
+            key: primaryKey,
+            quarter: quarterIndex(game, season),
+            quote: game.quoteFactors.get(primaryKey) ?? 1,
+            resolved: false,
+          });
+        }
 
         for (const [targetIndex, target] of targets.entries()) {
           const key = `${target.category}:${target.name}`;
@@ -727,7 +1076,7 @@ function play(run) {
               * (breakoutUnlocked ? BREAKOUT_MOVE_MULTIPLIER : 1)
             : 1;
           game.signals.push({ eventId: event.id, key, direction, remaining, strength, moveMultiplier });
-          if (role === "primary") {
+          if (role === "primary" && !hiddenBySuspension) {
             tradeOnSignal(game, policy.id, target, perceived, eventIndex, random);
           }
         }
@@ -741,14 +1090,20 @@ function play(run) {
         const held = [...game.assets.values()];
         const target = held.length ? held[Math.floor(random() * held.length)] : CATALOG[Math.floor(random() * CATALOG.length)];
         surprise = { key: `${target.category}:${target.name}`, direction: random() < .5 ? "bullish" : "bearish" };
-        if (held.length) {
+        if (held.length && game.tradeSuspensionQuarters <= 0) {
           if (policy.id === "aggressive" && surprise.direction === "bullish") buy(game, target, game.cash * .25);
           else if (["safe", "balanced"].includes(policy.id) && surprise.direction === "bearish") sell(game, surprise.key, policy.id === "safe" ? .5 : 1);
-          else if (policy.id === "random" && random() < .5) surprise.direction === "bullish" ? buy(game, target, game.cash * .2) : sell(game, surprise.key, 1);
+          else if (policy.id === "random" && random() < .5) {
+            if (surprise.direction === "bullish") buy(game, target, game.cash * .2);
+            else sell(game, surprise.key, 1);
+          }
         }
       }
       marketMonth(game, random, surprise);
       closeQuarter(game, random);
+      if (game.tradeSuspensionQuarters > 0) game.tradeLockedQuarterCount += 1;
+      game.tradeSuspensionQuarters = Math.max(0, game.tradeSuspensionQuarters - 1);
+      game.regulatoryCooldownQuarters = Math.max(0, game.regulatoryCooldownQuarters - 1);
       if (game.health > 0) maybeIllness(game, policy.id, random);
       if (game.health <= 0) break;
     }
@@ -793,6 +1148,14 @@ function quantile(values, q) {
 const games = Array.from({ length: RUNS }, (_, run) => play(run));
 const endings = Object.fromEntries([...new Set(games.map((game) => game.ending))].map((ending) => [ending, games.filter((game) => game.ending === ending).length]));
 const achievementCounts = Object.fromEntries(ACHIEVEMENTS.map(([id, title]) => [title, games.filter((game) => game.unlocked.has(id)).length]));
+const careerLimitViolations = games.flatMap((game) => Object.entries(CAREER_EVENT_LIMITS)
+  .filter(([id, limit]) => game.careerEventCounts[id] > limit)
+  .map(([id, limit]) => ({ seedCode: game.seedCode, id, count: game.careerEventCounts[id], limit })));
+const careerOutcomeMismatchRuns = games.filter((game) => {
+  const outcomes = game.careerEventOutcomes;
+  return outcomes.promotionsOffered !== outcomes.promotionsAccepted + outcomes.promotionsDeclined
+    || outcomes.investigations !== outcomes.investigationCooperated + outcomes.investigationEscaped + outcomes.investigationPunished;
+});
 
 function summaryFor(subset) {
   const nets = subset.map(netWorth);
@@ -800,6 +1163,10 @@ function summaryFor(subset) {
   const choiceTotal = subset.reduce((sum, game) => sum + Object.values(game.intelChoices).reduce((choiceSum, count) => choiceSum + count, 0), 0);
   const totalDirectionalReads = subset.reduce((sum, game) => sum + game.totalDirectionalReads, 0);
   const totalCorrectReads = subset.reduce((sum, game) => sum + game.totalCorrectReads, 0);
+  const careerEligibleQuarters = subset.reduce((sum, game) => sum + game.careerEligibleQuarters, 0);
+  const careerEventsTriggered = subset.reduce((sum, game) => sum + game.careerEventsTriggered, 0);
+  const promotionsOffered = subset.reduce((sum, game) => sum + game.careerEventOutcomes.promotionsOffered, 0);
+  const promotionsAccepted = subset.reduce((sum, game) => sum + game.careerEventOutcomes.promotionsAccepted, 0);
   return {
     runs: subset.length,
     completed,
@@ -838,6 +1205,14 @@ function summaryFor(subset) {
     averageKolReputation: Number((subset.reduce((sum, game) => sum + game.kolReputation, 0) / subset.length).toFixed(1)),
     averageKolIncome: Math.round(subset.reduce((sum, game) => sum + game.totalKolIncome, 0) / Math.max(1, subset.reduce((sum, game) => sum + game.kolYears, 0))),
     maxKolIncome: Math.max(...subset.map((game) => game.maxKolIncome)),
+    averageCareerEvents: Number((careerEventsTriggered / subset.length).toFixed(2)),
+    careerEventQuarterHitRate: Number((careerEventsTriggered / Math.max(1, careerEligibleQuarters)).toFixed(4)),
+    averageCareerEventIncome: Math.round(subset.reduce((sum, game) => sum + game.careerEventCashIncome, 0) / subset.length),
+    averageCareerEventExpenses: Math.round(subset.reduce((sum, game) => sum + game.careerEventExpenses, 0) / subset.length),
+    averageHiddenNews: Number((subset.reduce((sum, game) => sum + game.hiddenNewsCount, 0) / subset.length).toFixed(2)),
+    averageTradeLockedQuarters: Number((subset.reduce((sum, game) => sum + game.tradeLockedQuarterCount, 0) / subset.length).toFixed(2)),
+    managerReachedRate: Number((subset.filter((game) => game.workManager).length / subset.length).toFixed(4)),
+    promotionAcceptanceRate: Number((promotionsAccepted / Math.max(1, promotionsOffered)).toFixed(4)),
     intelChoiceMix: Object.fromEntries(["research", "observe", "trend"].map((action) => {
       const count = subset.reduce((sum, game) => sum + game.intelChoices[action], 0);
       return [action, { count, rate: Number((count / choiceTotal).toFixed(4)) }];
@@ -854,6 +1229,69 @@ function endingsFor(subset) {
     .sort((left, right) => right[1].count - left[1].count));
 }
 
+function careerEventSummary(subset) {
+  const totalEvents = subset.reduce((sum, game) => sum + game.careerEventsTriggered, 0);
+  const eligibleQuarters = subset.reduce((sum, game) => sum + game.careerEligibleQuarters, 0);
+  const outcomeKeys = Object.keys(makeGame("SUMMARY-SCHEMA").careerEventOutcomes);
+  const outcomes = Object.fromEntries(outcomeKeys.map((key) => [key, subset.reduce((sum, game) => sum + game.careerEventOutcomes[key], 0)]));
+  const byType = Object.fromEntries(CAREER_EVENT_IDS.map((id) => {
+    const count = subset.reduce((sum, game) => sum + game.careerEventCounts[id], 0);
+    const optionA = subset.reduce((sum, game) => sum + game.careerEventChoices[id].A, 0);
+    const optionB = subset.reduce((sum, game) => sum + game.careerEventChoices[id].B, 0);
+    return [CAREER_EVENT_LABELS[id], {
+      count,
+      perRun: Number((count / Math.max(1, subset.length)).toFixed(3)),
+      shareOfCareerEvents: Number((count / Math.max(1, totalEvents)).toFixed(4)),
+      choices: {
+        A: { count: optionA, rate: Number((optionA / Math.max(1, count)).toFixed(4)) },
+        B: { count: optionB, rate: Number((optionB / Math.max(1, count)).toFixed(4)) },
+      },
+    }];
+  }));
+  return {
+    eligibleQuarters,
+    totalEvents,
+    eventsPerRun: Number((totalEvents / Math.max(1, subset.length)).toFixed(3)),
+    quarterHitRate: Number((totalEvents / Math.max(1, eligibleQuarters)).toFixed(4)),
+    runsWithAnyCareerEvent: subset.filter((game) => game.careerEventsTriggered > 0).length,
+    runsWithAnyCareerEventRate: Number((subset.filter((game) => game.careerEventsTriggered > 0).length / Math.max(1, subset.length)).toFixed(4)),
+    byType,
+    outcomes,
+    money: {
+      totalEventIncome: subset.reduce((sum, game) => sum + game.careerEventCashIncome, 0),
+      averageEventIncomePerRun: Math.round(subset.reduce((sum, game) => sum + game.careerEventCashIncome, 0) / Math.max(1, subset.length)),
+      averageWorkEventIncomePerRun: Math.round(subset.reduce((sum, game) => sum + game.workCareerIncome, 0) / Math.max(1, subset.length)),
+      averageKolEventIncomePerRun: Math.round(subset.reduce((sum, game) => sum + game.kolCareerIncome, 0) / Math.max(1, subset.length)),
+      totalExpenses: subset.reduce((sum, game) => sum + game.careerEventExpenses, 0),
+      averageExpensesPerRun: Math.round(subset.reduce((sum, game) => sum + game.careerEventExpenses, 0) / Math.max(1, subset.length)),
+      financedExpenseShare: Number((subset.reduce((sum, game) => sum + game.careerEventFinancedExpenses, 0) / Math.max(1, subset.reduce((sum, game) => sum + game.careerEventExpenses, 0))).toFixed(4)),
+    },
+    informationCost: {
+      hiddenNewsTotal: subset.reduce((sum, game) => sum + game.hiddenNewsCount, 0),
+      hiddenNewsPerRun: Number((subset.reduce((sum, game) => sum + game.hiddenNewsCount, 0) / Math.max(1, subset.length)).toFixed(3)),
+      hiddenByCareerChoice: subset.reduce((sum, game) => sum + game.hiddenNewsByCareer, 0),
+      hiddenByManagerRole: subset.reduce((sum, game) => sum + game.hiddenNewsByManager, 0),
+      hiddenBySuspension: subset.reduce((sum, game) => sum + game.hiddenNewsBySuspension, 0),
+      tradeLockedQuarters: subset.reduce((sum, game) => sum + game.tradeLockedQuarterCount, 0),
+      tradeLockedQuartersPerRun: Number((subset.reduce((sum, game) => sum + game.tradeLockedQuarterCount, 0) / Math.max(1, subset.length)).toFixed(3)),
+    },
+    manager: {
+      offers: outcomes.promotionsOffered,
+      accepted: outcomes.promotionsAccepted,
+      acceptanceRate: Number((outcomes.promotionsAccepted / Math.max(1, outcomes.promotionsOffered)).toFixed(4)),
+      runsPromoted: subset.filter((game) => game.workManager).length,
+      runsPromotedRate: Number((subset.filter((game) => game.workManager).length / Math.max(1, subset.length)).toFixed(4)),
+    },
+    regulation: {
+      investigations: outcomes.investigations,
+      cooperated: outcomes.investigationCooperated,
+      escaped: outcomes.investigationEscaped,
+      punished: outcomes.investigationPunished,
+      punishmentRateWhenInsisting: Number((outcomes.investigationPunished / Math.max(1, outcomes.investigationEscaped + outcomes.investigationPunished)).toFixed(4)),
+    },
+  };
+}
+
 const report = {
   configuration: {
     gameVersion: GAME_VERSION,
@@ -867,17 +1305,31 @@ const report = {
     earlyRetirementTarget: RETIREMENT_NET,
     kolIncomeCap: KOL_MAX_ANNUAL_INCOME,
     trendRewards: Object.fromEntries(Object.entries(INTEL_EFFECTS).map(([kind, effects]) => [kind, { cash: effects.trend.cash, knowledge: effects.trend.knowledge }])),
+    careerEventRules: {
+      frequency: "每季依職業抽選；麥當當 12%／14%／16%／19%，KOL 依聲量 12%／15%／17%／19%",
+      news: "職業事件不占原本兩則新聞；加班、代班、升遷主管與調查停權可隱藏新聞，但行情仍在背景發生",
+      manager: "年薪永久 +18%，年度健康額外 −1、壓力 +3，每季固定少看一則新聞",
+      investigation: "配合調查停權 2 季；硬拗 40% 過關，60% 支出 50 萬並停權 4 季",
+    },
     breakoutRule: `${BREAKOUT_STREAK_TARGET} 次連續判讀正確後，偏多事件有 ${Math.round(BREAKOUT_UNLOCK_CHANCE * 100)}% 機率形成主升段，行情倍率 ${BREAKOUT_MOVE_MULTIPLIER}`,
     knowledgeThresholds: { clearSignal: KNOWLEDGE_CLEAR_SIGNAL_LEVEL, confidence: KNOWLEDGE_CONFIDENCE_LEVEL, signalBoost: KNOWLEDGE_SIGNAL_BOOST_LEVEL, foresight: KNOWLEDGE_FORESIGHT_LEVEL },
     mainTraitCount: TRAITS.length,
     paperHandsChance: 1 / PAPER_HANDS_CHANCE_DENOMINATOR,
     policies: Object.fromEntries(POLICIES.map((policy) => [policy.label, games.filter((game) => game.policy === policy.label).length])),
-    note: "以五種固定策略代理玩家操作；收入、生活費、情報 A/B/C 健康代價、交易、每日複利波動、突襲、生病、信貸本息、種子初始能力、六種主體質、獨立紙手體質與結算條件均納入。不是窮舉所有真人選擇。",
+    note: "以五種固定策略代理玩家操作；收入、生活費、情報 A/B/C 健康代價、交易、每日複利波動、突襲、生病、信貸本息、種子初始能力、六種主體質、獨立紙手體質、麥當當與 KOL 季度職業事件、隱藏新聞、停權與結算條件均納入。不是窮舉所有真人選擇。",
   },
   overall: summaryFor(games),
+  careerEvents: careerEventSummary(games),
+  careerEventValidation: {
+    passed: careerLimitViolations.length === 0 && careerOutcomeMismatchRuns.length === 0,
+    eventLimitViolations: careerLimitViolations,
+    outcomeMismatchSeeds: careerOutcomeMismatchRuns.map((game) => game.seedCode),
+    maximumCountsInOneRun: Object.fromEntries(CAREER_EVENT_IDS.map((id) => [CAREER_EVENT_LABELS[id], Math.max(...games.map((game) => game.careerEventCounts[id]))])),
+  },
   endings: Object.fromEntries(Object.entries(endings).sort((left, right) => right[1] - left[1]).map(([ending, count]) => [ending, { count, rate: Number((count / RUNS).toFixed(4)) }])),
   achievements: Object.fromEntries(ACHIEVEMENTS.map(([, title]) => [title, { count: achievementCounts[title], rate: Number((achievementCounts[title] / RUNS).toFixed(4)) }])),
   byPolicy: Object.fromEntries(POLICIES.map((policy) => [policy.label, summaryFor(games.filter((game) => game.policy === policy.label))])),
+  careerEventsByPolicy: Object.fromEntries(POLICIES.map((policy) => [policy.label, careerEventSummary(games.filter((game) => game.policy === policy.label))])),
   byMainTrait: Object.fromEntries(TRAITS.map(([trait]) => {
     const subset = games.filter((game) => game.trait === trait);
     return [trait, { ...summaryFor(subset), endings: endingsFor(subset) }];

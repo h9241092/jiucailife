@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createAnonymousRunId, postAnonymousAnalytics, type AnonymousEventType } from "./analytics";
 import { buildLifeEventDeck, events as lifeEvents, type Choice, type EventKind, type GameEvent, type IntelChoiceEffects, type MarketScope } from "./event-catalog";
 
@@ -48,6 +48,7 @@ type MarketSignal = {
   totalMonths: number;
   moveMultiplier?: number;
   opportunity?: "breakout" | "knowledge" | "foresight";
+  hidden?: boolean;
 };
 type MarketQuoteState = {
   price: number;
@@ -132,9 +133,25 @@ type IllnessSeverity = "mild" | "moderate" | "severe";
 type IllnessEvent = { id: string; severity: IllnessSeverity; title: string; body: string; quote: string; costFactor: number };
 type IllnessChoice = "push" | "treat" | "family";
 type IllnessNotice = { tone: "good" | "flat" | "bad"; title: string; body: string; deltas: string[] };
-type PositionTradeNotice = { title: string; body: string; deltas: string[] };
 type BrokerAsset = { category: string; name: string };
 type EventTarget = BrokerAsset & { role: SignalRole };
+type CareerEventId = "mcd_overtime" | "mcd_coworker_leave" | "mcd_promotion" | "kol_sponsorship" | "kol_viral_video" | "kol_asset_crash" | "kol_investigation";
+type CareerEventChoice = "A" | "B";
+type CareerEventDefinition = { id: CareerEventId; eyebrow: string; title: string; body: string; quote: string };
+type CareerEventNotice = { tone: "good" | "flat" | "bad"; title: string; body: string; deltas: string[] };
+type KolEndorsement = { category: string; name: string; price: number; quarter: number; resolved?: boolean };
+type CareerEventStats = {
+  triggered: number;
+  salaryBonus: number;
+  kolCash: number;
+  hiddenNews: number;
+  lockedQuarters: number;
+  overtimeAccepted: number;
+  coworkerCovered: number;
+  promotionsAccepted: number;
+  investigations: number;
+  investigationPunishments: number;
+};
 type AchievementStats = {
   yearsStarted: number;
   kolYears: number;
@@ -201,6 +218,8 @@ type Game = {
   parttimeStreak: number;
   workConsecutiveYears: number;
   workTenureProtected: boolean;
+  workPromoted: boolean;
+  workBaseIncomeThisYear: number;
   income: number;
   gauges: GaugeStats;
   assets: Position[];
@@ -222,13 +241,20 @@ type Game = {
   earlyRetirementQualified: boolean;
   achievementStats: AchievementStats;
   eventOrder: number[];
+  careerEventCounts: Partial<Record<CareerEventId, number>>;
+  careerEventStats: CareerEventStats;
+  lastCareerEventPeriod: string | null;
+  hiddenNewsRemaining: number;
+  tradeLockUntilQuarter: number;
+  investigationCooldownUntilQuarter: number;
+  publicShoutCount: number;
+  kolEndorsements: KolEndorsement[];
 };
 
 const seasons = ["春", "夏", "秋", "冬"];
 const EVENTS_PER_SEASON = 2;
 const EVENTS_PER_YEAR = seasons.length * EVENTS_PER_SEASON;
-const calendarMonthIndex = (game: Pick<Game, "season" | "month">) => game.season * 3 + Math.min(2, game.month * 2);
-const absoluteMonthIndex = (game: Pick<Game, "year" | "season" | "month">) => (game.year - 1) * 12 + calendarMonthIndex(game);
+const absoluteQuarterIndex = (game: Pick<Game, "year" | "season">) => (game.year - 1) * 4 + game.season;
 const periodLabel = (game: Pick<Game, "season" | "month">) => `${seasons[game.season]}季`;
 const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.season >= 3
   ? "查看年度結算"
@@ -236,7 +262,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.0.8";
+const GAME_VERSION = "v1.1.1";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -495,6 +521,18 @@ const blankAchievementStats = (): AchievementStats => ({
   redHatHoldingYears: 0,
   maxRedHatHoldingYears: 0,
 });
+const blankCareerEventStats = (): CareerEventStats => ({
+  triggered: 0,
+  salaryBonus: 0,
+  kolCash: 0,
+  hiddenNews: 0,
+  lockedQuarters: 0,
+  overtimeAccepted: 0,
+  coworkerCovered: 0,
+  promotionsAccepted: 0,
+  investigations: 0,
+  investigationPunishments: 0,
+});
 const achievementStatsForAssets = (stats: AchievementStats, assets: Position[], purchaseAmount = 0): AchievementStats => {
   const categoryCount = new Set(assets.filter((asset) => brokerCategoryOrder.includes(asset.category)).map((asset) => asset.category)).size;
   const creditPurchase = Math.min(Math.max(0, purchaseAmount), stats.uninvestedCreditProceeds);
@@ -733,9 +771,151 @@ const ANNUAL_WORK_RAISE_RATE = .04;
 const outsideWorkIncome = (streak: number) => streak < WORK_RAISE_STREAK
   ? OUTSIDE_WORK_ANNUAL_INCOME
   : Math.round(EXPERIENCED_WORK_BASE_INCOME * Math.pow(1 + ANNUAL_WORK_RAISE_RATE, streak - WORK_RAISE_STREAK) / 1000) * 1000;
+const rankedWorkIncome = (streak: number, promoted: boolean) => Math.round(outsideWorkIncome(streak) * (promoted ? 1.18 : 1) / 1000) * 1000;
 const workHealthCost = (consecutiveYears: number) => 5 + Math.max(0, consecutiveYears - 2);
 const LEARNING_COST = 5000;
 const INTEL_RESEARCH_COST = 1000;
+const careerEventDefinitions: Record<CareerEventId, CareerEventDefinition> = {
+  mcd_overtime: {
+    id: "mcd_overtime",
+    eyebrow: "麥當當職場事件",
+    title: "主管問你：今晚能不能留下來加班？",
+    body: "晚班缺人，主管把加班表推到你面前。多賺一筆，就得拿本季的市場情報交換。",
+    quote: "錢會進帳，但新聞不會等你下班。",
+  },
+  mcd_coworker_leave: {
+    id: "mcd_coworker_leave",
+    eyebrow: "麥當當職場事件",
+    title: "同事臨時請假，群組只剩你還沒已讀。",
+    body: "代班能多換一點收入，但你會錯過下一則市場新聞；婉拒則照常看完兩則。",
+    quote: "今天救班，明天不一定有人救你的持倉。",
+  },
+  mcd_promotion: {
+    id: "mcd_promotion",
+    eyebrow: "麥當當升遷事件",
+    title: "店長把值班主管的名牌放到你面前。",
+    body: "收入會永久提高，但健康與壓力成本也會加重；從此每季只能完整看到一則市場新聞。",
+    quote: "升遷不是免費午餐，只是比較貴的員工餐。",
+  },
+  kol_sponsorship: {
+    id: "kol_sponsorship",
+    eyebrow: "投資 KOL 職業事件",
+    title: "品牌主動找上門，希望你替產品說幾句好話。",
+    body: "直接照稿能拿滿業配費；先查證只拿六成，但比較不會拿信用去換現金。",
+    quote: "合作內容僅供參考，帳單倒是一定會入帳。",
+  },
+  kol_viral_video: {
+    id: "kol_viral_video",
+    eyebrow: "投資 KOL 職業事件",
+    title: "一支舊影片突然爆紅，演算法把你推回首頁。",
+    body: "立刻追更能把流量換成更多現金與聲量，但要用健康、壓力和下一則新聞付款。",
+    quote: "流量回來了，睡眠還在載入中。",
+  },
+  kol_asset_crash: {
+    id: "kol_asset_crash",
+    eyebrow: "投資 KOL 職業事件",
+    title: "你先前喊過的標的突然重挫。",
+    body: "留言區開始翻舊帳。道歉會掉聲量但保住信用；硬拗能繼續賺流量，代價則會留在帳上。",
+    quote: "影片可以剪掉，歷史價格不行。",
+  },
+  kol_investigation: {
+    id: "kol_investigation",
+    eyebrow: "投資 KOL 監管事件",
+    title: "你因公開喊單被要求配合調查。",
+    body: "配合調查會停看盤、停交易兩季；堅稱只是分享有四成機率脫身，失敗則付出更高罰款並停權一年。",
+    quote: "免責聲明很小，調查通知很大。",
+  },
+};
+const careerEventCount = (game: Pick<Game, "careerEventCounts">, id: CareerEventId) => game.careerEventCounts?.[id] ?? 0;
+const kolSponsorshipFee = (reputation: number) => reputation >= 80 ? 300000 : reputation >= 50 ? 160000 : 100000;
+const annualWorkBaseIncome = (game: Pick<Game, "workBaseIncomeThisYear" | "parttimeStreak" | "workPromoted">) => game.workBaseIncomeThisYear || rankedWorkIncome(Math.max(1, game.parttimeStreak), game.workPromoted);
+const careerSalaryBonus = (baseIncome: number, rate: number) => Math.round(baseIncome * rate / 1000) * 1000;
+const careerEventChance = (game: Pick<Game, "occupation" | "parttimeStreak" | "kolReputation">) => {
+  if (game.occupation === "麥當當員工" || game.occupation === "麥當當值班主管") {
+    if (game.parttimeStreak >= 4) return .19;
+    if (game.parttimeStreak === 3) return .16;
+    if (game.parttimeStreak === 2) return .14;
+    return .12;
+  }
+  if (game.occupation === "投資KOL") {
+    if (game.kolReputation >= 80) return .19;
+    if (game.kolReputation >= 50) return .17;
+    if (game.kolReputation >= 20) return .15;
+    return .12;
+  }
+  return 0;
+};
+const promotionEventShare = (game: Pick<Game, "parttimeStreak" | "workConsecutiveYears">) => Math.min(
+  .85,
+  .25 + Math.max(0, game.parttimeStreak - 3) * .1 + Math.max(0, game.workConsecutiveYears - 2) * .05,
+);
+const currentCrashedEndorsement = (game: Game) => {
+  const quarter = absoluteQuarterIndex(game);
+  return (game.kolEndorsements ?? []).find((endorsement) => {
+    const age = quarter - endorsement.quarter;
+    const quote = game.marketQuotes?.[marketQuoteKey(endorsement)];
+    return !endorsement.resolved && age >= 0 && age <= 4 && Boolean(quote && quote.price <= endorsement.price * .85);
+  }) ?? null;
+};
+const chooseQuarterCareerEvent = (game: Game): CareerEventDefinition | null => {
+  const chance = careerEventChance(game);
+  if (chance <= 0) return null;
+  const random = createGameRandom(game, "career-event");
+  if (random() >= chance) return null;
+
+  if (game.occupation === "麥當當員工" || game.occupation === "麥當當值班主管") {
+    const promotionEligible = !game.workPromoted && game.parttimeStreak >= 3 && game.workConsecutiveYears >= 2 && game.gauges.health > 30;
+    if (promotionEligible && random() < promotionEventShare(game)) return careerEventDefinitions.mcd_promotion;
+    const candidates: CareerEventDefinition[] = [];
+    if (!game.workPromoted) candidates.push(careerEventDefinitions.mcd_overtime);
+    if (careerEventCount(game, "mcd_coworker_leave") < 3) candidates.push(careerEventDefinitions.mcd_coworker_leave);
+    return candidates.length ? candidates[Math.floor(random() * candidates.length)] : null;
+  }
+
+  if (game.occupation === "投資KOL") {
+    const candidates: CareerEventDefinition[] = [];
+    if (game.kolReputation >= 20 && careerEventCount(game, "kol_sponsorship") < 3) candidates.push(careerEventDefinitions.kol_sponsorship);
+    if ((game.achievementStats?.kolYears ?? 0) > 0 && careerEventCount(game, "kol_viral_video") < 2) candidates.push(careerEventDefinitions.kol_viral_video);
+    if (currentCrashedEndorsement(game) && careerEventCount(game, "kol_asset_crash") < 3) candidates.push(careerEventDefinitions.kol_asset_crash);
+    const quarter = absoluteQuarterIndex(game);
+    if (game.kolReputation >= 30 && game.publicShoutCount >= 3 && careerEventCount(game, "kol_investigation") < 2
+      && quarter >= game.tradeLockUntilQuarter && quarter >= game.investigationCooldownUntilQuarter) candidates.push(careerEventDefinitions.kol_investigation);
+    return candidates.length ? candidates[Math.floor(random() * candidates.length)] : null;
+  }
+  return null;
+};
+const careerEventOptionsFor = (game: Game, event: CareerEventDefinition) => {
+  const workBase = annualWorkBaseIncome(game);
+  const sponsorshipFee = kolSponsorshipFee(game.kolReputation);
+  if (event.id === "mcd_overtime") return [
+    { choice: "A" as const, label: "留下來加班", desc: `本年收入 +${formatMoney(careerSalaryBonus(workBase, .12))}、健康 −1、壓力 +3；本季兩則新聞都看不到，但仍能交易。` },
+    { choice: "B" as const, label: "準時下班看盤", desc: "收入不變；本季兩則新聞與交易照常。" },
+  ];
+  if (event.id === "mcd_coworker_leave") return [
+    { choice: "A" as const, label: "接下這次代班", desc: `本年收入 +${formatMoney(careerSalaryBonus(workBase, .06))}、健康 −1、壓力 +2；下一則新聞看不到，但仍能交易。` },
+    { choice: "B" as const, label: "婉拒代班", desc: "收入不變、壓力 −1；本季兩則新聞照常。" },
+  ];
+  if (event.id === "mcd_promotion") return [
+    { choice: "A" as const, label: "接受升遷", desc: "職稱改為值班主管；下一年度起基本年薪永久 +18%，每年健康額外 −1、壓力額外 +3；每季固定少看一則新聞。" },
+    { choice: "B" as const, label: "暫時婉拒", desc: "維持原職；健康 +1、壓力 −3，未來仍可能再次遇到升遷。" },
+  ];
+  if (event.id === "kol_sponsorship") return [
+    { choice: "A" as const, label: "直接照稿上片", desc: `現金 +${formatMoney(sponsorshipFee)}、聲量 +4、信用 −3、投資知識 −1；兩則新聞照常。` },
+    { choice: "B" as const, label: "先查證再合作", desc: `現金 +${formatMoney(Math.round(sponsorshipFee * .6))}、知識 +2、信用 +2、健康 −1、壓力 +2；下一則新聞看不到。` },
+  ];
+  if (event.id === "kol_viral_video") return [
+    { choice: "A" as const, label: "熬夜追更", desc: "現金 +100,000、聲量 +8、健康 −3、壓力 +6；下一則新聞看不到。" },
+    { choice: "B" as const, label: "照原排程更新", desc: "現金 +30,000、聲量 +3、健康 +1、壓力 −2；兩則新聞照常。" },
+  ];
+  if (event.id === "kol_asset_crash") return [
+    { choice: "A" as const, label: "公開道歉並檢討", desc: "聲量 −10、信用 +4、知識 +2、壓力 +3。" },
+    { choice: "B" as const, label: "堅稱只是長期布局，繼續喊", desc: "現金 +60,000、聲量 +5、信用 −6、知識 −3、壓力 +7；公開喊單次數再 +1。" },
+  ];
+  return [
+    { choice: "A" as const, label: "配合調查並下架影片", desc: "支出 100,000、聲量 −8、信用 +2、壓力 +4；接下來兩季不能看情報或交易。" },
+    { choice: "B" as const, label: "堅稱只是分享", desc: "先獲得聲量 +4；40% 脫身，60% 遭處分：支出 500,000、聲量再 −15、信用 −8、壓力 +10，四季不能看情報或交易。" },
+  ];
+};
 const kolSuccessChance = (game: Pick<Game, "year" | "gauges" | "lastYearMarketMove" | "lastYearReadAccuracy" | "kolReputation">) => game.year === 1
   ? FIRST_YEAR_KOL_GOOD_CHANCE
   : clamp(
@@ -1053,6 +1233,14 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
   };
 }
 
+function createHiddenMarketSignals(game: Game, event: GameEvent) {
+  return eventTargetsForEvent(event).map((target, index) => {
+    const { signal } = createMarketIntel(game, event, "observe", target, index);
+    const id = `${signal.id}-hidden`;
+    return { ...signal, id, groupId: `${signal.groupId}-hidden`, hidden: true } satisfies MarketSignal;
+  });
+}
+
 const ageMarketSignals = (signals: MarketSignal[]) => signals
   .map((signal) => ({ ...signal, remainingMonths: signal.remainingMonths - 1 }))
   .filter((signal) => signal.remainingMonths > 0);
@@ -1217,10 +1405,12 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
     name: chosenName, background: "迷茫的大學畢業生", occupation: "無業", trait: trait[0], traitEffect: trait[1], specialTrait: hasPaperHands ? "紙手體質" : null, specialTraitEffect: hasPaperHands ? PAPER_HANDS_EFFECT : null,
     cash: startingCash, debt: 0, familyDebt: 0, lastFamilyBorrowYear: null, lastCreditBorrowYear: null, creditLoanMonthsRemaining: 0, lastIncomeChoiceYear: null, incomeSource: "尚未決定", lastYearMarketMove: 0,
     correctSignalStreak: 0, maxCorrectSignalStreak: 0, breakoutOpportunities: 0, annualCorrectReads: 0, annualDirectionalReads: 0, lastYearReadAccuracy: null, kolReputation: 0,
-    familySupportStreak: 0, parttimeStreak: 0, workConsecutiveYears: 0, workTenureProtected: false, income: 0, gauges, assets: [],
+    familySupportStreak: 0, parttimeStreak: 0, workConsecutiveYears: 0, workTenureProtected: false, workPromoted: false, workBaseIncomeThisYear: 0, income: 0, gauges, assets: [],
     result: null, annualStartNet: startingCash, annualMarketMove: 0, quarterMarketMove: 0, annualSummary: null, wealthHistory: [{ age: STARTING_AGE, netWorth: startingCash }], history: [], surpriseSeen: [], familyEventSeen: [], illnessSeen: [], illnessCooldown: 0,
     activeSignals: [], intelRecords: [], marketQuotes: initialMarketQuotes(),
     age31InvestableNet: null, earlyRetirementQualified: false, achievementStats: blankAchievementStats(), eventOrder: freshEventOrder(),
+    careerEventCounts: {}, careerEventStats: blankCareerEventStats(), lastCareerEventPeriod: null, hiddenNewsRemaining: 0,
+    tradeLockUntilQuarter: 0, investigationCooldownUntilQuarter: 0, publicShoutCount: 0, kolEndorsements: [],
   };
 }
 
@@ -1417,8 +1607,9 @@ export default function Home() {
   const analyticsStartedAt = useRef(0);
   const analyticsLatestGame = useRef<Game | null>(null);
   const lastPresentedEvent = useRef<string | null>(null);
+  const lastCareerRoll = useRef<string | null>(null);
   const [playerName, setPlayerName] = useState("");
-  const [seedInput, setSeedInput] = useState("");
+  const [seedInput, setSeedInput] = useState(() => randomSeedCode());
   const [showForeword, setShowForeword] = useState(false);
   const [hideForewordNext, setHideForewordNext] = useState(false);
   const [assetsOpen, setAssetsOpen] = useState(false);
@@ -1427,25 +1618,26 @@ export default function Home() {
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
   const [intelView, setIntelView] = useState<"active" | "archive">("active");
   const [pendingReduction, setPendingReduction] = useState<Choice | null>(null);
-  const [positionTradeTarget, setPositionTradeTarget] = useState<Position | null>(null);
-  const [positionTradeNotice, setPositionTradeNotice] = useState<PositionTradeNotice | null>(null);
   const [quarterSurprise, setQuarterSurprise] = useState<QuarterSurprise | null>(null);
   const [debtAction, setDebtAction] = useState<DebtAction | null>(null);
   const [debtNotice, setDebtNotice] = useState<DebtNotice | null>(null);
   const [incomeNotice, setIncomeNotice] = useState<IncomeNotice | null>(null);
+  const [careerEvent, setCareerEvent] = useState<CareerEventDefinition | null>(null);
+  const [careerNotice, setCareerNotice] = useState<CareerEventNotice | null>(null);
   const [familyEvent, setFamilyEvent] = useState<FamilyEvent | null>(null);
   const [illnessEvent, setIllnessEvent] = useState<IllnessEvent | null>(null);
   const [illnessNotice, setIllnessNotice] = useState<IllnessNotice | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false);
   const [brokerOpen, setBrokerOpen] = useState(false);
+  const [brokerNewsHidden, setBrokerNewsHidden] = useState(false);
   const [brokerCategory, setBrokerCategory] = useState("台股");
   const [brokerNotice, setBrokerNotice] = useState<string | null>(null);
   const [quarterReport, setQuarterReport] = useState<Resolution | null>(null);
   const endingCardRef = useRef<HTMLElement | null>(null);
   const [screenshotState, setScreenshotState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
-  function trackAnonymous(eventType: AnonymousEventType, data: Record<string, string | number | boolean | null | string[]> = {}, snapshot = game) {
+  const trackAnonymous = useCallback((eventType: AnonymousEventType, data: Record<string, string | number | boolean | null | string[]> = {}, snapshot: Game | null = game) => {
     const runId = analyticsRunId.current;
     if (!runId) return;
     postAnonymousAnalytics({
@@ -1460,7 +1652,7 @@ export default function Home() {
       month: snapshot?.month,
       data,
     });
-  }
+  }, [game]);
 
   function startTrackedLife() {
     const next = makeGame(playerName, seedInput);
@@ -1471,6 +1663,7 @@ export default function Home() {
     analyticsStartedAt.current = Date.now();
     analyticsLatestGame.current = next;
     lastPresentedEvent.current = null;
+    lastCareerRoll.current = null;
     setGame(next);
     postAnonymousAnalytics({
       runId,
@@ -1495,10 +1688,6 @@ export default function Home() {
       },
     });
   }
-
-  useEffect(() => {
-    setSeedInput((current) => current || randomSeedCode());
-  }, []);
 
   useEffect(() => {
     if (!mobileProfileOpen) return;
@@ -1556,26 +1745,30 @@ export default function Home() {
 
   useEffect(() => {
     if (!game || game.phase === "ending" || game.gauges.health > 0) return;
-    setAssetsOpen(false);
-    setDebtsOpen(false);
-    setIntelOpen(false);
-    setMobileProfileOpen(false);
-    setIntelView("active");
-    setPendingReduction(null);
-    setPositionTradeTarget(null);
-    setPositionTradeNotice(null);
-    setQuarterSurprise(null);
-    setDebtAction(null);
-    setDebtNotice(null);
-    setIncomeNotice(null);
-    setFamilyEvent(null);
-    setIllnessEvent(null);
-    setIllnessNotice(null);
-    setHistoryOpen(false);
-    setBrokerOpen(false);
-    setBrokerNotice(null);
-    setQuarterReport(null);
-    setGame({ ...game, phase: "ending", result: null, annualSummary: null });
+    const timer = window.setTimeout(() => {
+      setAssetsOpen(false);
+      setDebtsOpen(false);
+      setIntelOpen(false);
+      setMobileProfileOpen(false);
+      setIntelView("active");
+      setPendingReduction(null);
+      setQuarterSurprise(null);
+      setDebtAction(null);
+      setDebtNotice(null);
+      setIncomeNotice(null);
+      setCareerEvent(null);
+      setCareerNotice(null);
+      setFamilyEvent(null);
+      setIllnessEvent(null);
+      setIllnessNotice(null);
+      setHistoryOpen(false);
+      setBrokerOpen(false);
+      setBrokerNewsHidden(false);
+      setBrokerNotice(null);
+      setQuarterReport(null);
+      setGame({ ...game, phase: "ending", result: null, annualSummary: null });
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [game]);
 
   useEffect(() => {
@@ -1596,21 +1789,52 @@ export default function Home() {
       earlyRetirement: game.earlyRetirementQualified,
       achievementIds: achievementsFor(game).filter((achievement) => achievement.unlocked).map((achievement) => achievement.id),
     }, game);
-  }, [game?.phase]);
+  }, [game, trackAnonymous]);
 
+  const gameSeed = game?.seed;
   const eventDeck = useMemo(
-    () => game ? buildLifeEventDeck(game.seed, LIFE_YEAR_COUNT) : [],
-    [game?.seed],
+    () => gameSeed !== undefined ? buildLifeEventDeck(gameSeed, LIFE_YEAR_COUNT) : [],
+    [gameSeed],
   );
   const currentEventSelection = useMemo(() => game ? selectAffordableCurrentEvent(game, eventDeck) : null, [game, eventDeck]);
   const currentEvent = currentEventSelection?.event ?? null;
+  const currentQuarter = game ? absoluteQuarterIndex(game) : 0;
+  const marketAccessLocked = Boolean(game && currentQuarter < game.tradeLockUntilQuarter);
+  const currentNewsHidden = Boolean(game && (
+    marketAccessLocked
+    || game.hiddenNewsRemaining > 0
+    || (game.workPromoted && game.occupation === "麥當當值班主管" && game.month === 1)
+  ));
+  const careerPeriod = game ? `${game.year}:${game.season}` : "";
+  const careerCheckPending = Boolean(game && game.phase === "season" && game.month === 0 && game.lastIncomeChoiceYear === game.year && game.lastCareerEventPeriod !== careerPeriod);
   useEffect(() => {
     if (!currentEventSelection?.needsCommit) return;
-    setGame((current) => current ? { ...current, eventOrder: currentEventSelection.order } : current);
+    const timer = window.setTimeout(() => {
+      setGame((current) => current ? { ...current, eventOrder: currentEventSelection.order } : current);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [currentEventSelection]);
   useEffect(() => {
+    if (!game || game.phase !== "season" || game.month !== 0 || game.lastIncomeChoiceYear !== game.year
+      || game.lastCareerEventPeriod === careerPeriod || lastCareerRoll.current === careerPeriod
+      || game.result || quarterSurprise || quarterReport || incomeNotice || familyEvent || illnessEvent || debtAction || brokerOpen || careerEvent || careerNotice) return;
+    lastCareerRoll.current = careerPeriod;
+    const selected = chooseQuarterCareerEvent(game);
+    const counts = { ...(game.careerEventCounts ?? {}) };
+    const stats = { ...(game.careerEventStats ?? blankCareerEventStats()) };
+    if (selected) {
+      counts[selected.id] = (counts[selected.id] ?? 0) + 1;
+      stats.triggered += 1;
+    }
+    const timer = window.setTimeout(() => {
+      setGame({ ...game, lastCareerEventPeriod: careerPeriod, careerEventCounts: counts, careerEventStats: stats });
+      if (selected) setCareerEvent(selected);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [game, careerPeriod, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, brokerOpen, careerEvent, careerNotice]);
+  useEffect(() => {
     if (!game || !currentEvent || game.phase !== "season" || game.result || game.lastIncomeChoiceYear !== game.year
-      || quarterSurprise || quarterReport || incomeNotice || familyEvent || illnessEvent || debtAction || positionTradeTarget || brokerOpen) return;
+      || careerCheckPending || currentNewsHidden || quarterSurprise || quarterReport || incomeNotice || careerEvent || careerNotice || familyEvent || illnessEvent || debtAction || brokerOpen) return;
     const presentationKey = `${game.year}:${game.season}:${game.month}:${currentEvent.id}`;
     if (lastPresentedEvent.current === presentationKey) return;
     lastPresentedEvent.current = presentationKey;
@@ -1624,7 +1848,7 @@ export default function Home() {
       marketScope: currentEvent.marketScope ?? null,
       affectedTargets: targets.map((target) => `${target.category}:${target.name}`),
     }, game);
-  }, [game?.year, game?.season, game?.month, game?.phase, game?.result, game?.lastIncomeChoiceYear, currentEvent?.id, quarterSurprise, quarterReport, incomeNotice, familyEvent, illnessEvent, debtAction, positionTradeTarget, brokerOpen]);
+  }, [game, currentEvent, careerCheckPending, currentNewsHidden, quarterSurprise, quarterReport, incomeNotice, careerEvent, careerNotice, familyEvent, illnessEvent, debtAction, brokerOpen, trackAnonymous]);
   const currentEventTargets = currentEvent ? eventTargetsForEvent(currentEvent) : [];
   const currentEventTarget = currentEventTargets[0];
   const currentAdvisorSignal = currentEvent ? advisorSignalForEvent(currentEvent) : null;
@@ -1791,6 +2015,17 @@ export default function Home() {
     if (choice.intelAction && sourceEvent) {
       const targets = eventTargetsForEvent(sourceEvent);
       if (targets.length) {
+        if (choice.intelAction === "trend") {
+          const primary = targets.find((target) => target.role === "primary") ?? targets[0];
+          const quote = next.marketQuotes?.[marketQuoteKey(primary)];
+          next.publicShoutCount = (next.publicShoutCount ?? 0) + 1;
+          if (quote) {
+            next.kolEndorsements = [
+              ...(next.kolEndorsements ?? []).filter((endorsement) => absoluteQuarterIndex(next) - endorsement.quarter <= 4),
+              { category: primary.category, name: primary.name, price: quote.price, quarter: absoluteQuarterIndex(next), resolved: false },
+            ].slice(-24);
+          }
+        }
         const rawIntels = targets.map((target, index) => createMarketIntel(next, sourceEvent, choice.intelAction!, target, index));
         const primaryIntel = rawIntels[0];
         const readAttempted = Boolean(primaryIntel?.record.readDirection);
@@ -1907,6 +2142,7 @@ export default function Home() {
   }
 
   function chooseEventOption(choice: Choice) {
+    if (marketAccessLocked || currentNewsHidden) return;
     if (choice.action === "reduce") {
       if (game?.specialTrait === "紙手體質") {
         resolveChoice(choice, 1);
@@ -1928,69 +2164,8 @@ export default function Home() {
     resolveChoice(choice, ratio);
   }
 
-  function openPositionTrade(position: Position) {
-    if (!game || game.phase !== "season" || game.result || quarterSurprise || incomeChoiceRequired || familyEvent || illnessEvent) return;
-    setPositionTradeTarget({ ...position });
-    setPositionTradeNotice(null);
-  }
-
-  function confirmPositionTrade(requestedRatio: .5 | 1) {
-    if (!game || !positionTradeTarget || positionTradeNotice) return;
-    const positionIndex = game.assets.findIndex((asset) => asset.id === positionTradeTarget.id);
-    if (positionIndex < 0) {
-      setPositionTradeTarget(null);
-      return;
-    }
-    const position = game.assets[positionIndex];
-    const sellRatio = game.specialTrait === "紙手體質" ? 1 : requestedRatio;
-    const proceeds = position.value * sellRatio;
-    const releasedCost = position.cost * sellRatio;
-    const realizedProfit = proceeds - releasedCost;
-    const releasedLoan = (position.loan ?? 0) * sellRatio;
-    const generalDebt = Math.max(0, game.debt - (game.familyDebt ?? 0));
-    const automaticRepayment = Math.min(proceeds, releasedLoan, generalDebt);
-    const netCash = proceeds - automaticRepayment;
-    const remainingValue = position.value - proceeds;
-    const remainingCost = position.cost - releasedCost;
-    const remainingLoan = Math.max(0, (position.loan ?? 0) - releasedLoan);
-    const assets = remainingValue < 1
-      ? game.assets.filter((_, index) => index !== positionIndex)
-      : game.assets.map((asset, index) => index === positionIndex
-        ? { ...asset, value: remainingValue, cost: remainingCost, loan: remainingLoan }
-        : asset);
-    const actionLabel = sellRatio >= 1 ? "全部賣出" : "減碼 50%";
-    const notice: PositionTradeNotice = {
-      title: sellRatio >= 1 ? `「${position.name}」已全部賣出。` : `「${position.name}」已減碼一半。`,
-      body: `你主動指定${position.category}「${position.name}」執行${actionLabel}。這次只是調整資產配置，本次事件仍保留，不會因此跳到下一次事件。`,
-      deltas: [
-        `賣出價款 +${formatMoney(proceeds).replace("NT$ ", "")}`,
-        ...(automaticRepayment > 0 ? [`自動還債 −${formatMoney(automaticRepayment).replace("NT$ ", "")}`] : []),
-        `現金淨增加 +${formatMoney(netCash).replace("NT$ ", "")}`,
-        `實現損益 ${realizedProfit >= 0 ? "+" : "−"}${formatMoney(Math.abs(realizedProfit)).replace("NT$ ", "")}`,
-        `部位 −${Math.round(sellRatio * 100)}%`,
-      ],
-    };
-    const nextGame = {
-      ...game,
-      cash: game.cash + netCash,
-      debt: Math.max(0, game.debt - automaticRepayment),
-      assets,
-      history: [...game.history, `${game.age}歲${periodLabel(game)}自主交易：${position.name}${actionLabel}`].slice(-8),
-    };
-    trackAnonymous("trade", {
-      side: "sell",
-      category: position.category,
-      target: position.name,
-      ratio: Math.round(sellRatio * 100),
-      amount: Math.round(proceeds),
-      netWorth: Math.round(netWorth(nextGame)),
-    }, nextGame);
-    setGame(nextGame);
-    setPositionTradeNotice(notice);
-  }
-
   function brokerBuy(asset: BrokerAsset, ratio: .25 | .5 | 1 = .25) {
-    if (!game || !brokerOpen || game.cash <= 0) return;
+    if (!game || marketAccessLocked || !brokerOpen || game.cash <= 0) return;
     const budget = Math.min(game.cash, Math.max(3000, game.cash * ratio));
     if (budget < 3000) {
       setBrokerNotice("單筆最低下單金額為 NT$ 3,000，目前可用現金不足。");
@@ -2026,7 +2201,7 @@ export default function Home() {
   }
 
   function brokerSell(position: Position, requestedRatio: .25 | .5 | 1 = 1) {
-    if (!game || !brokerOpen) return;
+    if (!game || marketAccessLocked || !brokerOpen) return;
     const positionIndex = game.assets.findIndex((asset) => asset.id === position.id);
     if (positionIndex < 0) return;
     const current = game.assets[positionIndex];
@@ -2075,45 +2250,45 @@ export default function Home() {
     setBrokerOpen(true);
   }
 
+  function processHiddenNews() {
+    if (!game || !currentEvent || !currentNewsHidden) return;
+    const hiddenSignals = createHiddenMarketSignals(game, currentEvent);
+    const stats = { ...(game.careerEventStats ?? blankCareerEventStats()), hiddenNews: (game.careerEventStats?.hiddenNews ?? 0) + 1 };
+    const next: Game = {
+      ...game,
+      activeSignals: [...(game.activeSignals ?? []), ...hiddenSignals],
+      hiddenNewsRemaining: Math.max(0, game.hiddenNewsRemaining - (game.hiddenNewsRemaining > 0 ? 1 : 0)),
+      careerEventStats: stats,
+      result: null,
+      history: [...game.history, `${game.age}歲${periodLabel(game)}：因工作安排錯過一則市場新聞`].slice(-8),
+    };
+    trackAnonymous("career_news_missed", {
+      eventId: currentEvent.id,
+      reason: marketAccessLocked ? "market_access_locked" : game.occupation === "麥當當值班主管" && game.month === 1 ? "manager_schedule" : "career_workload",
+      tradeLocked: marketAccessLocked,
+      hiddenNewsRemaining: next.hiddenNewsRemaining,
+    }, next);
+    setBrokerNotice(null);
+    if (marketAccessLocked) {
+      setBrokerOpen(false);
+      setBrokerNewsHidden(false);
+      advanceMarketMonth(next, false);
+      return;
+    }
+    setGame(next);
+    setBrokerNewsHidden(true);
+    setBrokerOpen(true);
+  }
+
   function closeBrokerMonth() {
     if (!game || !brokerOpen) return;
     setBrokerOpen(false);
+    setBrokerNewsHidden(false);
     setBrokerNotice(null);
-    if (game.month < EVENTS_PER_SEASON - 1) {
-      const firstMonthMove = applyMonthlyMarketMove(game.assets, game.marketQuotes ?? initialMarketQuotes(), 0, createGameRandom(game, "market:0"), undefined, game.activeSignals ?? []);
-      setGame({
-        ...game,
-        assets: firstMonthMove.assets,
-        marketQuotes: firstMonthMove.marketQuotes,
-        annualMarketMove: game.annualMarketMove + firstMonthMove.marketMove,
-        quarterMarketMove: game.quarterMarketMove + firstMonthMove.marketMove,
-        activeSignals: ageMarketSignals(game.activeSignals ?? []),
-        month: game.month + 1,
-        result: null,
-      });
-      return;
-    }
+    advanceMarketMonth(game, true);
+  }
 
-    // 第二次事件結束後，先自動結算季度的第二個月；最後一個月再進入一般行情或突發事件。
-    const secondMonthMove = applyMonthlyMarketMove(game.assets, game.marketQuotes ?? initialMarketQuotes(), 1, createGameRandom(game, "market:1"), undefined, game.activeSignals ?? []);
-    const secondMonthGame: Game = {
-      ...game,
-      assets: secondMonthMove.assets,
-      marketQuotes: secondMonthMove.marketQuotes,
-      annualMarketMove: game.annualMarketMove + secondMonthMove.marketMove,
-      quarterMarketMove: game.quarterMarketMove + secondMonthMove.marketMove,
-      activeSignals: ageMarketSignals(game.activeSignals ?? []),
-      result: null,
-    };
-    if (createGameRandom(secondMonthGame, "quarter-surprise:chance")() < QUARTER_SURPRISE_CHANCE) {
-      const surprise = createQuarterSurprise(secondMonthGame, createGameRandom(secondMonthGame, "quarter-surprise:content"));
-      const achievementStats = secondMonthGame.achievementStats ?? blankAchievementStats();
-      setGame({ ...secondMonthGame, surpriseSeen: [...secondMonthGame.surpriseSeen, surprise.id], achievementStats: { ...achievementStats, surprises: achievementStats.surprises + 1 } });
-      setQuarterSurprise(surprise);
-      return;
-    }
-
-    const thirdMonthMove = applyMonthlyMarketMove(secondMonthGame.assets, secondMonthGame.marketQuotes, 2, createGameRandom(secondMonthGame, "market:2"), undefined, secondMonthGame.activeSignals ?? []);
+  function settleQuarterMarkets(secondMonthGame: Game, thirdMonthMove: ReturnType<typeof applyMonthlyMarketMove>, hiddenSurprise = false) {
     const quarterMarketMove = secondMonthGame.quarterMarketMove + thirdMonthMove.marketMove;
     const settled: Game = {
       ...secondMonthGame,
@@ -2127,12 +2302,57 @@ export default function Home() {
     setGame(settled);
     setQuarterReport({
       tone: quarterMarketMove > 0 ? "good" : quarterMarketMove < 0 ? "bad" : "flat",
-      eyebrow: `${periodLabel(game)} · 三個月行情結算`,
+      eyebrow: `${periodLabel(secondMonthGame)} · 三個月行情結算`,
       title: quarterMarketMove > 0 ? "這一季，市場替帳戶加了點顏色。" : quarterMarketMove < 0 ? "這一季，市場收走了一些耐心。" : "這一季，帳戶幾乎原地踏步。",
-      body: game.assets.length ? "三個月營業日波動已逐月複利計入每一筆持倉。" : "你本季維持空手，市場照常波動，但沒有產生持倉損益。",
-      detail: "每季包含三個月行情；台股與 ETF 每個營業日限制在 −10%～+10%，美股每個營業日限制在 −30%～+30%，加密貨幣沿用單月漲跌上限。",
+      body: secondMonthGame.assets.length ? "三個月營業日波動已逐月複利計入每一筆持倉。" : "你本季維持空手，市場照常波動，但沒有產生持倉損益。",
+      detail: `${hiddenSurprise ? "本季曾有一則無法閱讀的突發消息，已在背景納入價格。" : ""}每季包含三個月行情；台股與 ETF 每個營業日限制在 −10%～+10%，美股每個營業日限制在 −30%～+30%，加密貨幣沿用單月漲跌上限。`,
       deltas: [`本季持倉變動 ${quarterMarketMove >= 0 ? "+" : "−"}${formatMoney(Math.abs(quarterMarketMove)).replace("NT$ ", "")}`, `期末投資資產 ${formatMoney(thirdMonthMove.assets.reduce((sum, asset) => sum + asset.value, 0)).replace("NT$ ", "")}`],
     });
+  }
+
+  function advanceMarketMonth(source: Game, allowSurpriseInteraction: boolean) {
+    if (source.month < EVENTS_PER_SEASON - 1) {
+      const firstMonthMove = applyMonthlyMarketMove(source.assets, source.marketQuotes ?? initialMarketQuotes(), 0, createGameRandom(source, "market:0"), undefined, source.activeSignals ?? []);
+      setGame({
+        ...source,
+        assets: firstMonthMove.assets,
+        marketQuotes: firstMonthMove.marketQuotes,
+        annualMarketMove: source.annualMarketMove + firstMonthMove.marketMove,
+        quarterMarketMove: source.quarterMarketMove + firstMonthMove.marketMove,
+        activeSignals: ageMarketSignals(source.activeSignals ?? []),
+        month: source.month + 1,
+        result: null,
+      });
+      return;
+    }
+
+    // 第二次核心事件後結算第二個月，第三個月可能出現季末突襲。
+    const secondMonthMove = applyMonthlyMarketMove(source.assets, source.marketQuotes ?? initialMarketQuotes(), 1, createGameRandom(source, "market:1"), undefined, source.activeSignals ?? []);
+    let secondMonthGame: Game = {
+      ...source,
+      assets: secondMonthMove.assets,
+      marketQuotes: secondMonthMove.marketQuotes,
+      annualMarketMove: source.annualMarketMove + secondMonthMove.marketMove,
+      quarterMarketMove: source.quarterMarketMove + secondMonthMove.marketMove,
+      activeSignals: ageMarketSignals(source.activeSignals ?? []),
+      result: null,
+    };
+    if (createGameRandom(secondMonthGame, "quarter-surprise:chance")() < QUARTER_SURPRISE_CHANCE) {
+      const surprise = createQuarterSurprise(secondMonthGame, createGameRandom(secondMonthGame, "quarter-surprise:content"));
+      const achievementStats = secondMonthGame.achievementStats ?? blankAchievementStats();
+      secondMonthGame = { ...secondMonthGame, surpriseSeen: [...secondMonthGame.surpriseSeen, surprise.id], achievementStats: { ...achievementStats, surprises: achievementStats.surprises + 1 } };
+      if (allowSurpriseInteraction) {
+        setGame(secondMonthGame);
+        setQuarterSurprise(surprise);
+        return;
+      }
+      const hiddenSurpriseMove = applyMonthlyMarketMove(secondMonthGame.assets, secondMonthGame.marketQuotes, 2, createGameRandom(secondMonthGame, "market:2"), surprise, secondMonthGame.activeSignals ?? []);
+      settleQuarterMarkets(secondMonthGame, hiddenSurpriseMove, true);
+      return;
+    }
+
+    const thirdMonthMove = applyMonthlyMarketMove(secondMonthGame.assets, secondMonthGame.marketQuotes, 2, createGameRandom(secondMonthGame, "market:2"), undefined, secondMonthGame.activeSignals ?? []);
+    settleQuarterMarkets(secondMonthGame, thirdMonthMove);
   }
 
   function continueAfterQuarterReport() {
@@ -2603,6 +2823,7 @@ export default function Home() {
             ? Math.max(0, Math.round((60000 + game.kolReputation * 1200 + trackRecordBonus * .2 + random() * 120000) / 1000) * 1000)
             : Math.round(random() * 60000 / 1000) * 1000;
       next.income = income;
+      next.workBaseIncomeThisYear = 0;
       next.incomeSource = isColdStart ? "股市 KOL · 冷啟動" : "股市 KOL";
       next.occupation = "投資KOL";
       next.familySupportStreak = 0;
@@ -2644,6 +2865,7 @@ export default function Home() {
       const fallbackIncome = 180000;
       const strain = Math.min(10, 4 + streak * 2);
       next.income = approved ? support : fallbackIncome;
+      next.workBaseIncomeThisYear = 0;
       next.incomeSource = approved ? "家裡資助" : "家裡資助未通過 · 臨時零工";
       next.occupation = "無業";
       next.familySupportStreak = streak + 1;
@@ -2662,27 +2884,31 @@ export default function Home() {
       next.achievementStats.parttimeYears += 1;
       const streak = (game.parttimeStreak ?? 0) + 1;
       const consecutiveYears = (game.workConsecutiveYears ?? 0) + 1;
-      const healthCost = workHealthCost(consecutiveYears);
-      const income = outsideWorkIncome(streak);
+      const healthCost = workHealthCost(consecutiveYears) + (game.workPromoted ? 1 : 0);
+      const stressCost = 8 + (game.workPromoted ? 3 : 0);
+      const income = rankedWorkIncome(streak, game.workPromoted);
       next.income = income;
-      next.incomeSource = streak >= WORK_RAISE_STREAK ? "外出打工 · 資深薪資" : "外出打工";
-      next.occupation = "麥當當員工";
+      next.workBaseIncomeThisYear = income;
+      next.incomeSource = game.workPromoted ? "麥當當值班主管" : streak >= WORK_RAISE_STREAK ? "外出打工 · 資深薪資" : "外出打工";
+      next.occupation = game.workPromoted ? "麥當當值班主管" : "麥當當員工";
       next.familySupportStreak = 0;
       next.parttimeStreak = streak;
       next.workConsecutiveYears = consecutiveYears;
       const tenureJustUnlocked = !game.workTenureProtected && streak >= WORK_TENURE_PROTECTION_STREAK;
       next.workTenureProtected = game.workTenureProtected || tenureJustUnlocked;
       next.gauges.health = clamp(next.gauges.health - healthCost);
-      next.gauges.stress = clamp(next.gauges.stress + 8);
+      next.gauges.stress = clamp(next.gauges.stress + stressCost);
       notice = {
         tone: "flat",
-        title: tenureJustUnlocked ? "連續工作滿三年，這份年資終於不會蒸發。" : streak >= WORK_RAISE_STREAK ? "老闆終於承認你不是新人。" : "白天服務客人，晚上服務券商。",
+        title: game.workPromoted ? "你回到值班主管的位置，薪資與責任一起報到。" : tenureJustUnlocked ? "連續工作滿三年，這份年資終於不會蒸發。" : streak >= WORK_RAISE_STREAK ? "老闆終於承認你不是新人。" : "白天服務客人，晚上服務券商。",
         body: tenureJustUnlocked
           ? `這是第 ${streak} 年工作，年薪為 ${formatMoney(income)}。你已解鎖永久年資保留；以後即使中途改做 KOL 或接受家裡資助，再回來工作仍會沿用目前年資與薪資級距。`
+          : game.workPromoted
+            ? `值班主管基本年薪永久提高18%，本年度為 ${formatMoney(income)}。主管職每年額外消耗健康1點、增加壓力3點，工作期間每季固定少看一則市場新聞。`
           : streak >= WORK_RAISE_STREAK
             ? `目前工作年資第 ${streak} 年，年薪提高為 ${formatMoney(income)}，將在年度結算時入帳。${game.workTenureProtected ? "永久年資已保留，即使中途換跑道也不會歸零。" : "第 3 年可解鎖永久年資保留；之後每年薪資再調升 4%。"}`
           : `連續打工第 ${streak} 年，你換到穩定的 ${formatMoney(income)} 年收入；連續第 3 年起會提高為 ${formatMoney(EXPERIENCED_WORK_BASE_INCOME)}，之後每年再調升 4%。`,
-        deltas: [`年末待入帳 ${formatMoney(income)}`, `${next.workTenureProtected ? "保留年資" : "工作年資"} ${streak} 年`, `連續工作 ${consecutiveYears} 年`, ...(tenureJustUnlocked ? ["永久年資保留 已解鎖"] : []), `健康 −${healthCost}`, "壓力 +8", "投資知識不變"],
+        deltas: [`年末待入帳 ${formatMoney(income)}`, `${next.workTenureProtected ? "保留年資" : "工作年資"} ${streak} 年`, `連續工作 ${consecutiveYears} 年`, ...(game.workPromoted ? ["主管基本年薪 +18%", "每季固定隱藏 1 則新聞"] : []), ...(tenureJustUnlocked ? ["永久年資保留 已解鎖"] : []), `健康 −${healthCost}`, `壓力 +${stressCost}`, "投資知識不變"],
       };
     }
 
@@ -2698,6 +2924,179 @@ export default function Home() {
     }, next);
     setGame(next);
     setIncomeNotice(notice);
+  }
+
+  function resolveCareerEvent(choice: CareerEventChoice) {
+    if (!game || !careerEvent || careerNotice) return;
+    const next: Game = {
+      ...game,
+      gauges: { ...game.gauges },
+      careerEventStats: { ...(game.careerEventStats ?? blankCareerEventStats()) },
+      kolEndorsements: [...(game.kolEndorsements ?? [])],
+    };
+    const stats = next.careerEventStats;
+    const workBase = annualWorkBaseIncome(game);
+    const sponsorshipFee = kolSponsorshipFee(game.kolReputation);
+    const quarter = absoluteQuarterIndex(game);
+    const chargeExpense = (amount: number) => {
+      const paid = Math.min(Math.max(0, next.cash), amount);
+      const financed = amount - paid;
+      next.cash -= paid;
+      next.debt += financed;
+      if (financed > 0) next.creditLoanMonthsRemaining = Math.max(next.creditLoanMonthsRemaining, CREDIT_LOAN_TERM_MONTHS);
+      return { paid, financed };
+    };
+    let notice: CareerEventNotice;
+
+    if (careerEvent.id === "mcd_overtime") {
+      if (choice === "A") {
+        const bonus = careerSalaryBonus(workBase, .12);
+        next.income += bonus;
+        next.gauges.health = clamp(next.gauges.health - 1);
+        next.gauges.stress = clamp(next.gauges.stress + 3);
+        next.hiddenNewsRemaining += 2;
+        stats.salaryBonus += bonus;
+        stats.overtimeAccepted += 1;
+        notice = { tone: "flat", title: "你留下來補完晚班，薪水變多，市場先跳過你。", body: "本季兩則新聞仍會在背景影響行情；你看不到內容，但每次仍可進券商自行交易。", deltas: [`本年收入 +${formatMoney(bonus).replace("NT$ ", "")}`, "健康 −1", "壓力 +3", "本季隱藏新聞 2 則"] };
+      } else {
+        notice = { tone: "good", title: "你準時下班，市場資訊沒有缺席。", body: "收入不變，本季兩則新聞與交易照常進行。", deltas: ["本年收入 不變", "健康 不變", "本季新聞 2 則"] };
+      }
+    } else if (careerEvent.id === "mcd_coworker_leave") {
+      if (choice === "A") {
+        const bonus = careerSalaryBonus(workBase, .06);
+        next.income += bonus;
+        next.gauges.health = clamp(next.gauges.health - 1);
+        next.gauges.stress = clamp(next.gauges.stress + 2);
+        next.hiddenNewsRemaining += 1;
+        stats.salaryBonus += bonus;
+        stats.coworkerCovered += 1;
+        notice = { tone: "flat", title: "你接下代班，也把下一則新聞讓給別人看。", body: "下一則新聞仍會影響行情；你不會看到標的與方向，但仍能進券商交易。", deltas: [`本年收入 +${formatMoney(bonus).replace("NT$ ", "")}`, "健康 −1", "壓力 +2", "下一則新聞 隱藏"] };
+      } else {
+        next.gauges.stress = clamp(next.gauges.stress - 1);
+        notice = { tone: "good", title: "你婉拒代班，第一次把時間留給自己。", body: "收入不變，本季兩則新聞都能正常閱讀。", deltas: ["本年收入 不變", "壓力 −1", "本季新聞 2 則"] };
+      }
+    } else if (careerEvent.id === "mcd_promotion") {
+      if (choice === "A") {
+        next.workPromoted = true;
+        next.occupation = "麥當當值班主管";
+        stats.promotionsAccepted += 1;
+        notice = { tone: "good", title: "你接過主管名牌，也接過更長的責任清單。", body: "本年度原薪資不追溯調整；下一次選擇麥當當工作起，基本年薪永久提高18%，年度健康與壓力成本同步增加。", deltas: ["職稱 麥當當值班主管", "下年度起基本年薪 +18%", "每年健康額外 −1", "每年壓力額外 +3", "每季固定隱藏 1 則新聞"] };
+      } else {
+        next.gauges.health = clamp(next.gauges.health + 1);
+        next.gauges.stress = clamp(next.gauges.stress - 3);
+        notice = { tone: "flat", title: "你先把名牌推回去，讓生活喘一口氣。", body: "維持麥當當員工；條件仍符合時，未來可能再次遇到升遷。", deltas: ["職稱 不變", "健康 +1", "壓力 −3"] };
+      }
+    } else if (careerEvent.id === "kol_sponsorship") {
+      if (choice === "A") {
+        next.cash += sponsorshipFee;
+        next.kolReputation = clamp(next.kolReputation + 4);
+        next.gauges.credit = clamp(next.gauges.credit - 3);
+        next.gauges.knowledge = clamp(next.gauges.knowledge - 1);
+        stats.kolCash += sponsorshipFee;
+        notice = { tone: "flat", title: "業配準時上線，信用開始延遲入帳。", body: "這筆現金是額外職業事件收入，不受156萬元年度 KOL 收入上限影響。", deltas: [`現金 +${formatMoney(sponsorshipFee).replace("NT$ ", "")}`, "KOL 聲量 +4", "信用 −3", "投資知識 −1"] };
+      } else {
+        const earned = Math.round(sponsorshipFee * .6);
+        next.cash += earned;
+        next.kolReputation = clamp(next.kolReputation);
+        next.gauges.knowledge = clamp(next.gauges.knowledge + 2);
+        next.gauges.credit = clamp(next.gauges.credit + 2);
+        next.gauges.health = clamp(next.gauges.health - 1);
+        next.gauges.stress = clamp(next.gauges.stress + 2);
+        next.hiddenNewsRemaining += 1;
+        stats.kolCash += earned;
+        notice = { tone: "good", title: "你先查產品再接合作，少賺一些，也少欠一些。", body: "下一則新聞會在背景影響市場；你忙於查證業配，因此看不到那則情報。", deltas: [`現金 +${formatMoney(earned).replace("NT$ ", "")}`, "投資知識 +2", "信用 +2", "健康 −1", "壓力 +2", "下一則新聞 隱藏"] };
+      }
+    } else if (careerEvent.id === "kol_viral_video") {
+      if (choice === "A") {
+        next.cash += 100000;
+        next.kolReputation = clamp(next.kolReputation + 8);
+        next.gauges.health = clamp(next.gauges.health - 3);
+        next.gauges.stress = clamp(next.gauges.stress + 6);
+        next.hiddenNewsRemaining += 1;
+        stats.kolCash += 100000;
+        notice = { tone: "good", title: "你趁熱追更，流量和黑眼圈一起成長。", body: "下一則新聞仍會影響行情，但你只來得及剪片，沒時間閱讀。", deltas: ["現金 +100,000", "KOL 聲量 +8", "健康 −3", "壓力 +6", "下一則新聞 隱藏"] };
+      } else {
+        next.cash += 30000;
+        next.kolReputation = clamp(next.kolReputation + 3);
+        next.gauges.health = clamp(next.gauges.health + 1);
+        next.gauges.stress = clamp(next.gauges.stress - 2);
+        stats.kolCash += 30000;
+        notice = { tone: "flat", title: "你沒有追著演算法跑，舊流量仍帶來一點收入。", body: "本季兩則新聞照常閱讀，身體也得到一點恢復。", deltas: ["現金 +30,000", "KOL 聲量 +3", "健康 +1", "壓力 −2"] };
+      }
+    } else if (careerEvent.id === "kol_asset_crash") {
+      const crashed = currentCrashedEndorsement(game);
+      if (crashed) next.kolEndorsements = next.kolEndorsements.map((endorsement) => endorsement.quarter === crashed.quarter && endorsement.category === crashed.category && endorsement.name === crashed.name && endorsement.price === crashed.price ? { ...endorsement, resolved: true } : endorsement);
+      if (choice === "A") {
+        next.kolReputation = clamp(next.kolReputation - 10);
+        next.gauges.credit = clamp(next.gauges.credit + 4);
+        next.gauges.knowledge = clamp(next.gauges.knowledge + 2);
+        next.gauges.stress = clamp(next.gauges.stress + 3);
+        notice = { tone: "flat", title: "你公開道歉，流量掉了，信用沒有一起跌停。", body: crashed ? `「${crashed.name}」這次重挫成為一堂公開的風險課。` : "你把錯誤留下來，沒有再用新話術蓋過去。", deltas: ["KOL 聲量 −10", "信用 +4", "投資知識 +2", "壓力 +3"] };
+      } else {
+        next.cash += 60000;
+        next.kolReputation = clamp(next.kolReputation + 5);
+        next.gauges.credit = clamp(next.gauges.credit - 6);
+        next.gauges.knowledge = clamp(next.gauges.knowledge - 3);
+        next.gauges.stress = clamp(next.gauges.stress + 7);
+        next.publicShoutCount += 1;
+        stats.kolCash += 60000;
+        notice = { tone: "bad", title: "你把重挫說成洗盤，流量回來，信用先離場。", body: "這次硬拗也被計為一次公開喊單，會提高未來遭調查事件的觸發資格。", deltas: ["現金 +60,000", "KOL 聲量 +5", "信用 −6", "投資知識 −3", "壓力 +7", "累計公開喊單 +1"] };
+      }
+    } else {
+      stats.investigations += 1;
+      if (choice === "A") {
+        const expense = chargeExpense(100000);
+        next.kolReputation = clamp(next.kolReputation - 8);
+        next.gauges.credit = clamp(next.gauges.credit + 2);
+        next.gauges.stress = clamp(next.gauges.stress + 4);
+        next.tradeLockUntilQuarter = Math.max(next.tradeLockUntilQuarter, quarter + 2);
+        stats.lockedQuarters += 2;
+        notice = { tone: "flat", title: "你配合調查，市場接下來兩季只會從帳面經過。", body: "兩季內看不到任何核心新聞與突發消息，也不能開啟券商；行情、持倉、生活費與其他人生事件仍會照常發生。", deltas: [`調查支出 −${formatMoney(100000).replace("NT$ ", "")}`, ...(expense.financed > 0 ? [`新增6%負債 +${formatMoney(expense.financed).replace("NT$ ", "")}`] : []), "KOL 聲量 −8", "信用 +2", "壓力 +4", "市場權限鎖定 2 季"] };
+      } else {
+        next.kolReputation = clamp(next.kolReputation + 4);
+        const escaped = createGameRandom(game, `career-investigation:${careerEventCount(game, "kol_investigation")}:B`)() < .4;
+        if (escaped) {
+          next.gauges.credit = clamp(next.gauges.credit - 2);
+          next.gauges.stress = clamp(next.gauges.stress + 3);
+          next.investigationCooldownUntilQuarter = Math.max(next.investigationCooldownUntilQuarter, quarter + 2);
+          notice = { tone: "good", title: "你這次成功脫身，但監管已經記住帳號。", body: "沒有停權；至少隔一整季才可能再遇到調查。", deltas: ["KOL 聲量 +4", "信用 −2", "壓力 +3", "市場權限 正常", "調查冷卻 1 季"] };
+        } else {
+          const expense = chargeExpense(500000);
+          next.kolReputation = clamp(next.kolReputation - 15);
+          next.gauges.credit = clamp(next.gauges.credit - 8);
+          next.gauges.stress = clamp(next.gauges.stress + 10);
+          next.tradeLockUntilQuarter = Math.max(next.tradeLockUntilQuarter, quarter + 4);
+          stats.lockedQuarters += 4;
+          stats.investigationPunishments += 1;
+          notice = { tone: "bad", title: "說明沒有被接受，處分與停權一起寄到。", body: "四季內看不到市場情報也不能交易；現金不足的罰款已轉為固定年利率6%的有息負債。", deltas: ["KOL 聲量 淨減少 11", `處分支出 −${formatMoney(500000).replace("NT$ ", "")}`, ...(expense.financed > 0 ? [`新增6%負債 +${formatMoney(expense.financed).replace("NT$ ", "")}`] : []), "信用 −8", "壓力 +10", "市場權限鎖定 4 季"] };
+        }
+      }
+    }
+
+    next.history = [...next.history, `${next.age}歲${periodLabel(next)}職業：${careerEvent.title} ${notice.title}`].slice(-8);
+    trackAnonymous("career_event", {
+      eventId: careerEvent.id,
+      choice,
+      outcome: notice.tone,
+      income: Math.round(next.income),
+      cash: Math.round(next.cash),
+      debt: Math.round(next.debt),
+      health: next.gauges.health,
+      stress: next.gauges.stress,
+      knowledge: next.gauges.knowledge,
+      credit: next.gauges.credit,
+      kolReputation: next.kolReputation,
+      hiddenNewsRemaining: next.hiddenNewsRemaining,
+      tradeLockedUntilQuarter: next.tradeLockUntilQuarter,
+    }, next);
+    setGame(next);
+    setCareerNotice(notice);
+  }
+
+  function closeCareerEvent() {
+    if (!careerNotice) return;
+    setCareerEvent(null);
+    setCareerNotice(null);
   }
 
   function closeIncomeNotice() {
@@ -2871,6 +3270,7 @@ export default function Home() {
       quarterMarketMove: 0,
       annualSummary: null,
       income: 0,
+      workBaseIncomeThisYear: 0,
       incomeSource: "尚未決定",
       lastYearMarketMove: game.annualSummary?.marketMove ?? 0,
       annualCorrectReads: 0,
@@ -2903,6 +3303,7 @@ export default function Home() {
     analyticsStartedAt.current = 0;
     analyticsLatestGame.current = null;
     lastPresentedEvent.current = null;
+    lastCareerRoll.current = null;
     setResetConfirmationOpen(false);
     setGame(null);
     setSeedInput(randomSeedCode());
@@ -2911,17 +3312,18 @@ export default function Home() {
     setIntelOpen(false);
     setIntelView("active");
     setPendingReduction(null);
-    setPositionTradeTarget(null);
-    setPositionTradeNotice(null);
     setQuarterSurprise(null);
     setDebtAction(null);
     setDebtNotice(null);
     setIncomeNotice(null);
+    setCareerEvent(null);
+    setCareerNotice(null);
     setFamilyEvent(null);
     setIllnessEvent(null);
     setIllnessNotice(null);
     setHistoryOpen(false);
     setBrokerOpen(false);
+    setBrokerNewsHidden(false);
     setBrokerCategory("台股");
     setBrokerNotice(null);
     setQuarterReport(null);
@@ -3069,7 +3471,7 @@ export default function Home() {
     return groups;
   }, new Map<string, IntelRecord[][]>()).entries());
   const currentEventIntel = currentEventTargets.map((target) => {
-    const signals = (game.activeSignals ?? []).filter((signal) => signal.targetCategory === target.category && signal.targetName === target.name);
+    const signals = (game.activeSignals ?? []).filter((signal) => !signal.hidden && signal.targetCategory === target.category && signal.targetName === target.name);
     return {
       target,
       role: target.role,
@@ -3229,6 +3631,14 @@ export default function Home() {
                 <button onClick={() => revealQuarterSurprise("hold", "research")}><span>C</span><b>先查證消息</b><small>不建立部位，交叉驗證來源並增加投資知識。</small><div className="choice-meta"><em className="risk-tag risk-safe">情報 查證</em><em className="money-hint">投資知識 +4</em></div></button>
               </>}
             </div>
+          </article> : careerCheckPending ? <article className="event-card career-loading-card">
+            <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)} · 行程確認中</p><h1>先看一眼<br/>這季的工作表。</h1><p className="lede">職業事件與市場新聞正在排入本季行程。</p>
+          </article> : currentNewsHidden && currentEvent ? <article className={`event-card hidden-news-card ${marketAccessLocked ? "access-locked" : "work-hidden"}`}>
+            <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · {marketAccessLocked ? "市場權限鎖定" : "工作占用時間"}</p>
+            <div className="hidden-news-symbol">{marketAccessLocked ? "⊘" : "…"}</div>
+            <h1>{marketAccessLocked ? <>市場照常波動，<br/>你看不到內容。</> : <>這則新聞發生了，<br/>你沒有時間閱讀。</>}</h1>
+            <p className="lede">{marketAccessLocked ? `目前尚餘 ${Math.max(1, game.tradeLockUntilQuarter - currentQuarter)} 季市場權限鎖定。新聞與季末突發消息仍會在背景影響價格，持倉也會照常漲跌。` : "標的、方向與情報全部隱藏；消息仍會在背景影響價格。你仍可進入券商，只能依既有資訊自行交易。"}</p>
+            <button className="primary" onClick={processHiddenNews}>{marketAccessLocked ? "讓本次行情在背景結算" : "進入券商，自行判斷"} <span>→</span></button>
           </article> : game.result ? <article className={`event-card result-card tone-${game.result.tone}`}>
             <p className="eyebrow green">{periodLabel(game)} · 第 {game.month + 1} 次事件 · {game.result.eyebrow}</p><div className="result-symbol">{game.result.tone === "good" ? "↗" : game.result.tone === "bad" ? "↘" : "→"}</div><h1>{game.result.title}</h1><p className="lede">{game.result.body}</p><div className="delta-list">{game.result.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div><details className="result-calculation"><summary>查看計算詳情</summary><div className="result-detail">{game.result.detail}</div></details><button className="primary" onClick={continueAfterResult}>進入本次券商 APP <span>→</span></button>
           </article> : currentEvent && <article className="event-card">
@@ -3255,7 +3665,7 @@ export default function Home() {
       {brokerOpen && game.gauges.health > 0 && <div className="broker-overlay" role="presentation">
         <section className="broker-app" role="dialog" aria-modal="true" aria-labelledby="broker-title">
           <header className="broker-header">
-            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>{currentEvent?.marketScope ? `本次消息擴散至${marketScopeLabel(currentEvent.marketScope)}；` : "主要與連動情報分開判讀，"}買賣由你決定。</span></div>
+            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>{brokerNewsHidden ? "你因工作錯過本次新聞；標的與方向不公開，仍可依既有資訊交易。" : <>{currentEvent?.marketScope ? `本次消息擴散至${marketScopeLabel(currentEvent.marketScope)}；` : "主要與連動情報分開判讀，"}買賣由你決定。</>}</span></div>
             <button className="broker-finish" onClick={closeBrokerMonth}>{game.month < EVENTS_PER_SEASON - 1 ? `結束交易，進入本季第 ${game.month + 2} 次事件` : "結束交易並結算本季"} <span>→</span></button>
           </header>
           <div className="broker-metrics">
@@ -3266,7 +3676,7 @@ export default function Home() {
           </div>
           <div className="broker-intelligence">
             <span>本次情報</span>
-            <div className="broker-intelligence-targets">{currentEventIntel.length ? <>{currentFocusedIntel.map((item) => <article className={`broker-intelligence-item broker-intelligence-${item.role}`} key={`${item.target.category}:${item.target.name}`}>
+            <div className="broker-intelligence-targets">{brokerNewsHidden ? <p className="broker-hidden-intelligence">本次新聞內容已錯過，不顯示標的、方向或連動範圍。價格仍會在本月結算時反映消息。</p> : currentEventIntel.length ? <>{currentFocusedIntel.map((item) => <article className={`broker-intelligence-item broker-intelligence-${item.role}`} key={`${item.target.category}:${item.target.name}`}>
               <div><em>{signalRoleLabel(item.role)}</em><b>{item.target.category} · 「{item.target.name}」</b><AssetQuoteLabel asset={item.target} game={game} />{item.signals.length > 0 && <i className={`broker-intel-summary signal-${item.summary.tone}`}>{item.summary.label} · {item.summary.detail}</i>}</div>
               <p>{item.record ? `${item.record.clue} ${item.record.durationLabel}${item.record.opportunityLabel ? `；${item.record.opportunityLabel}` : ""}` : "尚未取得本次判讀。"}</p>
             </article>)}{currentMarketIntel.length > 0 && <article className="broker-intelligence-item broker-intelligence-market">
@@ -3289,7 +3699,7 @@ export default function Home() {
               const heldValue = positions.reduce((sum, position) => sum + position.value, 0);
               const heldCost = positions.reduce((sum, position) => sum + position.cost, 0);
               const profit = heldValue - heldCost;
-              const activeAssetSignals = (game.activeSignals ?? []).filter((signal) => signal.targetCategory === asset.category && signal.targetName === asset.name);
+              const activeAssetSignals = (game.activeSignals ?? []).filter((signal) => !signal.hidden && signal.targetCategory === asset.category && signal.targetName === asset.name);
               const assetSignalSummary = summarizeVisibleSignals(activeAssetSignals, game.intelRecords ?? []);
               return <article className="broker-asset-card" key={`${asset.category}-${asset.name}`}>
                 <div className="broker-asset-info">
@@ -3336,27 +3746,6 @@ export default function Home() {
             <button className="danger-button" onClick={() => confirmReduction(1)}>全部清倉 <span>×</span></button>
           </div>
           <button className="text-button cancel-reduction" onClick={() => setPendingReduction(null)}>取消，維持原部位</button>
-        </section>
-      </div>}
-      {positionTradeTarget && game.gauges.health > 0 && <div className="decision-overlay position-trade-overlay" role="presentation" onMouseDown={() => { setPositionTradeTarget(null); setPositionTradeNotice(null); }}>
-        <section className="decision-dialog position-trade-dialog" role="dialog" aria-modal="true" aria-labelledby="position-trade-title" onMouseDown={(event) => event.stopPropagation()}>
-          <p className="eyebrow green">自主資產管理 · {positionTradeTarget.category}</p>
-          {positionTradeNotice ? <>
-            <h2 id="position-trade-title">{positionTradeNotice.title}</h2>
-            <p>{positionTradeNotice.body}</p>
-            <div className="delta-list">{positionTradeNotice.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div>
-            <button className="primary" onClick={() => { setPositionTradeTarget(null); setPositionTradeNotice(null); }}>回到本次事件 <span>→</span></button>
-          </> : <>
-            <h2 id="position-trade-title">要賣多少<br/>「{positionTradeTarget.name}」？</h2>
-            <div className="position-trade-snapshot"><span>目前市值 <b>{formatMoney(positionTradeTarget.value)}</b></span><span>帳面損益 <b className={positionTradeTarget.value >= positionTradeTarget.cost ? "positive" : "negative"}>{positionTradeTarget.value >= positionTradeTarget.cost ? "+" : "−"}{formatMoney(Math.abs(positionTradeTarget.value - positionTradeTarget.cost)).replace("NT$ ", "")}</b></span></div>
-            <p>你可以直接指定這筆持倉賣出，不必等待相關事件出現。交易完成後，本月題目與月份進度都會保留。</p>
-            <div className={`decision-actions ${game.specialTrait === "紙手體質" ? "single-action" : ""}`}>
-              {game.specialTrait !== "紙手體質" && <button className="primary" onClick={() => confirmPositionTrade(.5)}>減碼 50% <span>½</span></button>}
-              <button className="danger-button" onClick={() => confirmPositionTrade(1)}>全部賣出 <span>×</span></button>
-            </div>
-            {game.specialTrait === "紙手體質" && <p className="paper-hands-warning">紙手體質觸發：自主賣出時只能整筆清倉。</p>}
-            <button className="text-button cancel-reduction" onClick={() => { setPositionTradeTarget(null); setPositionTradeNotice(null); }}>取消，維持這筆部位</button>
-          </>}
         </section>
       </div>}
       {debtAction && game.gauges.health > 0 && <div className="decision-overlay" role="presentation" onMouseDown={() => { setDebtAction(null); setDebtNotice(null); }}>
@@ -3418,7 +3807,7 @@ export default function Home() {
           <div className="income-path-list">
             <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? "職業更新為投資KOL · 冷啟動期 · 收入 0～10 萬 · 小爆紅機率約 12%" : `職業更新為投資KOL · 收入 0～156 萬 · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力`}</small></button>
             <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接18萬元臨時零工、家庭關係 −5</small></button>
-            <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>麥當當員工</b><small>職業更新為麥當當員工 · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(outsideWorkIncome(game.parttimeStreak + 1))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1)}、壓力 +8</small></button>
+            <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>{game.workPromoted ? "麥當當值班主管" : "麥當當員工"}</b><small>職業更新為{game.workPromoted ? "麥當當值班主管" : "麥當當員工"} · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(rankedWorkIncome(game.parttimeStreak + 1, game.workPromoted))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1) + (game.workPromoted ? 1 : 0)}、壓力 +{8 + (game.workPromoted ? 3 : 0)}{game.workPromoted ? " · 每季固定少看1則新聞" : ""}</small></button>
           </div>
         </section>
       </div>}
@@ -3429,6 +3818,24 @@ export default function Home() {
           <p>{incomeNotice.body}</p>
           <div className="delta-list">{incomeNotice.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div>
           <button className="primary" onClick={closeIncomeNotice}>開始今年的市場人生 <span>→</span></button>
+        </section>
+      </div>}
+      {careerEvent && game.gauges.health > 0 && <div className="decision-overlay career-event-overlay" role="presentation">
+        <section className={`decision-dialog career-event-dialog ${careerNotice ? `career-notice-${careerNotice.tone}` : ""}`} role="dialog" aria-modal="true" aria-labelledby="career-event-title">
+          <p className="eyebrow green">{careerEvent.eyebrow} · {periodLabel(game)}</p>
+          {careerNotice ? <>
+            <h2 id="career-event-title">{careerNotice.title}</h2>
+            <p>{careerNotice.body}</p>
+            <div className="delta-list">{careerNotice.deltas.map((delta) => <span className={deltaClassName(delta)} key={delta}>{delta}</span>)}</div>
+            <button className="primary" onClick={closeCareerEvent}>繼續本季 <span>→</span></button>
+          </> : <>
+            <h2 id="career-event-title">{careerEvent.title}</h2>
+            <p>{careerEvent.body}</p>
+            <div className="family-event-quote">「{careerEvent.quote}」</div>
+            <div className="career-event-choice-list">
+              {careerEventOptionsFor(game, careerEvent).map((option) => <button key={option.choice} onClick={() => resolveCareerEvent(option.choice)}><span>{option.choice}</span><b>{option.label}</b><small>{option.desc}</small></button>)}
+            </div>
+          </>}
         </section>
       </div>}
       {familyEvent && game.gauges.health > 0 && <div className="decision-overlay family-event-overlay" role="presentation">

@@ -3,6 +3,8 @@ export type AnonymousEventType =
   | "event_presented"
   | "event_choice"
   | "income_choice"
+  | "career_event"
+  | "career_news_missed"
   | "trade"
   | "debt_action"
   | "surprise_resolved"

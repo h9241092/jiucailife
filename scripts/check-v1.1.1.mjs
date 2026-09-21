@@ -46,14 +46,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE108');
+  const game = gameApi.makeGame('', 'RELEASE111');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.0.8 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.0.8');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.0.8');
-  assert.match(wiki, /適用版本：`v1\.0\.8`/);
+test('v1.1.1 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.1.1');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.1');
+  assert.match(wiki, /適用版本：`v1\.1\.1`/);
 });
 test('retired property and mortgage mechanics stay removed without changing credit or family loans', () => {
   const retiredMechanics = [
@@ -152,11 +152,26 @@ test('mobile role profile uses a compact summary trigger and dismissible bottom 
   assert.match(mobileSheetCss, /max-height:min\(88dvh,760px\)/);
   assert.match(mobileSheetCss, /env\(safe-area-inset-bottom,0px\)/);
 });
-test('Wiki includes v1.0.8 figures and existing event effects', () => {
+test('Wiki includes v1.1.1 figures and existing event effects', () => {
   for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','1.5 倍','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });
-test('local simulation and event export tools follow the current v1.0.8 rules', () => {
+test('career event prices and penalties stay synchronized in v1.1.1', () => {
+  assert.match(source, /reputation >= 80 \? 300000 : reputation >= 50 \? 160000 : 100000/);
+  assert.match(source, /堅稱只是長期布局，繼續喊/);
+  assert.match(source, /投資知識 −3/);
+  assert.match(source, /chargeExpense\(100000\)/);
+  assert.match(approximateSimulator, /game\.kolReputation < 50 \? 100000 : game\.kolReputation < 80 \? 160000 : 300000/);
+  assert.match(approximateSimulator, /payCareerExpense\(game, 100000\)/);
+  assert.match(approximateSimulator, /game\.knowledge = clamp\(game\.knowledge - 3\)/);
+});
+test('retired position trade dialog and styles stay removed', () => {
+  for (const retired of ['openPositionTrade', 'positionTradeTarget', 'PositionTradeNotice', 'position-trade-dialog', 'asset-sell-button']) {
+    assert(!source.includes(retired), retired);
+    assert(!css.includes(retired), retired);
+  }
+});
+test('local simulation and event export tools follow the current v1.1.1 rules', () => {
   for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
   for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
   assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);

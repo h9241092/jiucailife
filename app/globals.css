@@ -51,7 +51,6 @@ button:focus-visible { outline:3px solid rgba(20,107,67,.24); outline-offset:3px
 .result-calculation { margin-top:16px; }.result-calculation summary { width:max-content; padding:7px 0; color:#5e6a62; font-size:11px; font-weight:800; text-decoration:underline; text-underline-offset:4px; cursor:pointer; }.result-calculation .result-detail { margin:8px 0 0; }
 .history-overlay { z-index:95; }.history-dialog { width:min(620px,100%); border-top:5px solid var(--green); }.history-list { display:grid; gap:8px; max-height:min(52vh,440px); overflow-y:auto; margin:20px 0 0; padding:0; list-style:none; }.history-list li { display:grid; grid-template-columns:30px 1fr; align-items:start; gap:10px; padding:12px 13px; border:1px solid var(--line); background:white; }.history-list span { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:var(--paper); color:var(--green); font-size:10px; font-weight:900; }.history-list p { margin:2px 0 0; font-size:12px; line-height:1.6; }.history-empty { padding:18px; border:1px solid var(--line); background:white; }
 .asset-row i,.asset-row em,.asset-loan { font-size:10px; }.asset-row b { font-size:11px; }.trend-badge { font-size:9px; }.debt-breakdown i { font-size:10px; }.debt-breakdown b { font-size:13px; }.debt-actions button b,.career-actions b { font-size:12px; }.debt-actions small,.career-actions small,.debt-drawer>p,.career-drawer>p { font-size:9px; }.choices button>b { font-size:14px; line-height:1.4; }.choices button>small { font-size:11px; line-height:1.6; }.asset-target { font-size:10px; }.event-impact-tag span,.surprise-rule span { font-size:10px; }.event-impact-tag b,.surprise-signal b { font-size:11px; }.result-detail { font-size:12px; }.delta-list span { font-size:11px; }.decision-dialog>p:not(.eyebrow) { font-size:13px; }.income-path-list b,.family-choice-list b { font-size:13px; }.income-path-list small,.family-choice-list small { font-size:11px; }.illness-status span { font-size:10px; }
-.asset-sell-button{display:block;margin:8px 0 0 auto;padding:5px 7px;border:1px solid rgba(110,224,203,.4);border-radius:7px;background:rgba(67,220,192,.08);color:#6ee0cb;font-size:9px;font-weight:800;cursor:pointer}.asset-sell-button:hover:not(:disabled){border-color:#6ee0cb;background:rgba(67,220,192,.16)}.asset-sell-button:disabled{cursor:not-allowed;opacity:.38}.position-trade-dialog{width:min(540px,100%);border-top:5px solid var(--green)}.position-trade-snapshot{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin:16px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--line)}.position-trade-snapshot>span{padding:12px;background:#0d111e;color:var(--muted);font-size:10px}.position-trade-snapshot b{display:block;margin-top:5px;color:var(--ink);font-size:14px}.decision-actions.single-action{grid-template-columns:1fr}.paper-hands-warning{margin:12px 0 0!important;padding:9px 11px;border-left:3px solid var(--red);background:rgba(232,106,91,.08);color:#e8a098!important;font-size:11px!important}.position-trade-dialog>.primary{margin-top:20px}
 @keyframes reveal { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 @keyframes foreword-backdrop-in { from { opacity:0; } to { opacity:1; } }
 @keyframes foreword-dialog-in { from { opacity:0; transform:translateY(24px) scale(.97); } to { opacity:1; transform:none; } }
@@ -509,4 +508,27 @@ button:focus-visible{outline:3px solid rgba(111,125,247,.42);outline-offset:3px}
 
 @media(prefers-reduced-motion:reduce){
   .dashboard.mobile-profile-open,.mobile-profile-backdrop{animation:none}
+}
+
+/* Quarterly career events */
+.career-event-overlay{z-index:88;overflow-y:auto}
+.career-event-dialog{width:min(620px,100%);border-top:5px solid var(--gold)}
+.career-event-choice-list{display:grid;gap:10px;margin-top:20px}
+.career-event-choice-list button{position:relative;display:grid;grid-template-columns:34px minmax(0,1fr);gap:5px 12px;padding:15px 16px;border:1px solid var(--line);border-radius:12px;background:#0d111e;color:var(--ink);text-align:left;cursor:pointer;transition:border-color .18s ease,transform .18s ease,background .18s ease}
+.career-event-choice-list button:hover{border-color:var(--gold);background:#151a2a;transform:translateX(3px)}
+.career-event-choice-list button>span{grid-row:1/3;display:grid;place-items:center;width:30px;height:30px;border:1px solid rgba(245,196,91,.4);border-radius:50%;background:rgba(245,196,91,.1);color:var(--gold);font-size:11px;font-weight:900}
+.career-event-choice-list button>b{font-size:14px;line-height:1.35}
+.career-event-choice-list button>small{color:var(--muted);font-size:11px;line-height:1.6}
+.hidden-news-card{border-color:rgba(245,196,91,.4)}
+.hidden-news-card.access-locked{border-color:rgba(239,104,116,.46)}
+.hidden-news-symbol{display:grid;place-items:center;width:58px;height:58px;margin:14px 0 18px;border:1px solid rgba(245,196,91,.42);border-radius:50%;background:rgba(245,196,91,.08);color:var(--gold);font-size:25px;font-weight:900}
+.hidden-news-card.access-locked .hidden-news-symbol{border-color:rgba(239,104,116,.48);background:rgba(239,104,116,.09);color:#ef6874}
+.broker-hidden-intelligence{width:100%;padding:15px;border:1px dashed rgba(245,196,91,.44);border-radius:11px;background:rgba(245,196,91,.06);color:#d8c78e!important;font-size:12px!important;line-height:1.65!important}
+.career-loading-card{opacity:.72}
+
+@media(max-width:620px){
+  .career-event-dialog{padding:22px 17px}
+  .career-event-choice-list button{padding:14px 13px}
+  .career-event-choice-list button>b{font-size:14px}
+  .career-event-choice-list button>small{font-size:12px}
 }
