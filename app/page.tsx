@@ -208,6 +208,7 @@ type Game = {
   incomeSource: string;
   lastYearMarketMove: number;
   correctSignalStreak: number;
+  correctSignalUnclearCount: number;
   maxCorrectSignalStreak: number;
   breakoutOpportunities: number;
   annualCorrectReads: number;
@@ -262,7 +263,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.2";
+const GAME_VERSION = "v1.1.3";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -754,15 +755,15 @@ const FIRST_YEAR_KOL_FLAT_CHANCE = .18;
 const KOL_FLAT_CHANCE = .25;
 const KOL_MAX_ANNUAL_INCOME = 1560000;
 const KOL_GOOD_VARIABLE_INCOME = 535000;
-const KNOWLEDGE_CLEAR_SIGNAL_LEVEL = 60;
-const KNOWLEDGE_CONFIDENCE_LEVEL = 73;
-const KNOWLEDGE_SIGNAL_BOOST_LEVEL = 82;
-const KNOWLEDGE_FORESIGHT_LEVEL = 90;
+const KNOWLEDGE_CLEAR_SIGNAL_LEVEL = 63;
+const KNOWLEDGE_CONFIDENCE_LEVEL = 75;
+const KNOWLEDGE_SIGNAL_BOOST_LEVEL = 86;
+const KNOWLEDGE_FORESIGHT_LEVEL = 93;
 const KNOWLEDGE_SIGNAL_MOVE_MULTIPLIER = 1.1;
 const FORESIGHT_CHANCE_PERCENT = 25;
 const BREAKOUT_STREAK_TARGET = 3;
-const BREAKOUT_UNLOCK_CHANCE_PERCENT = 18;
-const BREAKOUT_MOVE_MULTIPLIER = 1.8;
+const BREAKOUT_UNLOCK_CHANCE_PERCENT = 15.7;
+const BREAKOUT_MOVE_MULTIPLIER = 1.6;
 const OUTSIDE_WORK_ANNUAL_INCOME = 480000;
 const EXPERIENCED_WORK_BASE_INCOME = 600000;
 const WORK_RAISE_STREAK = 3;
@@ -987,7 +988,7 @@ const gaugeHint = (key: GaugeKey) => key === "health"
   ? "反映目前的身體狀況與恢復能力"
   : key === "stress" ? "反映目前承受的身心負荷"
     : key === "family" ? "影響家人支援、借款與家庭事件"
-      : key === "knowledge" ? "60強化判讀、73顯示可信度、82看對時行情效果+10%、90偶爾提前一季取得情報"
+      : key === "knowledge" ? "63強化判讀、75顯示可信度、86看對時行情效果+10%、93偶爾提前一季取得情報"
         : "影響槓桿、借款與部分投資結果";
 const incomeAbilityMeta: Record<GaugeKey, { icon: string; label: string }> = {
   health: { icon: "♥", label: "健康" },
@@ -1404,7 +1405,7 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
     age: STARTING_AGE, year: 1, seed, seedCode, phase: "season", season: 0, month: 0,
     name: chosenName, background: "迷茫的大學畢業生", occupation: "無業", trait: trait[0], traitEffect: trait[1], specialTrait: hasPaperHands ? "紙手體質" : null, specialTraitEffect: hasPaperHands ? PAPER_HANDS_EFFECT : null,
     cash: startingCash, debt: 0, familyDebt: 0, lastFamilyBorrowYear: null, lastCreditBorrowYear: null, creditLoanMonthsRemaining: 0, lastIncomeChoiceYear: null, incomeSource: "尚未決定", lastYearMarketMove: 0,
-    correctSignalStreak: 0, maxCorrectSignalStreak: 0, breakoutOpportunities: 0, annualCorrectReads: 0, annualDirectionalReads: 0, lastYearReadAccuracy: null, kolReputation: 0,
+    correctSignalStreak: 0, correctSignalUnclearCount: 0, maxCorrectSignalStreak: 0, breakoutOpportunities: 0, annualCorrectReads: 0, annualDirectionalReads: 0, lastYearReadAccuracy: null, kolReputation: 0,
     familySupportStreak: 0, parttimeStreak: 0, workConsecutiveYears: 0, workTenureProtected: false, workPromoted: false, workBaseIncomeThisYear: 0, income: 0, gauges, assets: [],
     result: null, annualStartNet: startingCash, annualMarketMove: 0, quarterMarketMove: 0, annualSummary: null, wealthHistory: [{ age: STARTING_AGE, netWorth: startingCash }], history: [], surpriseSeen: [], familyEventSeen: [], illnessSeen: [], illnessCooldown: 0,
     activeSignals: [], intelRecords: [], marketQuotes: initialMarketQuotes(),
@@ -2030,10 +2031,18 @@ export default function Home() {
         const primaryIntel = rawIntels[0];
         const readAttempted = Boolean(primaryIntel?.record.readDirection);
         const readCorrect = readAttempted && primaryIntel.record.readDirection === primaryIntel.signal.direction;
-        const streak = readCorrect ? (next.correctSignalStreak ?? 0) + 1 : 0;
+        const previousStreak = next.correctSignalStreak ?? 0;
+        const previousUnclearCount = next.correctSignalUnclearCount ?? 0;
+        const unclearCount = readAttempted ? 0 : previousUnclearCount + 1;
+        const unclearResetsStreak = !readAttempted && unclearCount >= 3;
+        const streak = readCorrect
+          ? previousStreak + 1
+          : readAttempted || unclearResetsStreak
+            ? 0
+            : previousStreak;
         const breakoutEligible = readCorrect && streak >= BREAKOUT_STREAK_TARGET && primaryIntel.signal.direction === "bullish";
         const breakoutUnlocked = breakoutEligible
-          && signalHash(`${next.seed}:${sourceEvent.id}:${next.year}:${next.season}:${next.month}:breakout`) % 100 < BREAKOUT_UNLOCK_CHANCE_PERCENT;
+          && signalHash(`${next.seed}:${sourceEvent.id}:${next.year}:${next.season}:${next.month}:breakout`) % 1000 < BREAKOUT_UNLOCK_CHANCE_PERCENT * 10;
         const foresightUnlocked = readCorrect
           && next.gauges.knowledge >= KNOWLEDGE_FORESIGHT_LEVEL
           && signalHash(`${next.seed}:${sourceEvent.id}:${next.year}:${next.season}:${next.month}:foresight`) % 100 < FORESIGHT_CHANCE_PERCENT;
@@ -2041,6 +2050,7 @@ export default function Home() {
         next.annualCorrectReads = (next.annualCorrectReads ?? 0) + (readCorrect ? 1 : 0);
         next.maxCorrectSignalStreak = Math.max(next.maxCorrectSignalStreak ?? 0, streak);
         next.correctSignalStreak = breakoutUnlocked ? 0 : streak;
+        next.correctSignalUnclearCount = readAttempted || unclearResetsStreak ? 0 : unclearCount;
         if (breakoutUnlocked) next.breakoutOpportunities = (next.breakoutOpportunities ?? 0) + 1;
 
         const intels: { signal: MarketSignal; record: IntelRecord }[] = rawIntels.map((intel, index) => {
@@ -2088,7 +2098,9 @@ export default function Home() {
             : `主要標的判讀正確，連續看對 ${streak} 次。${breakoutEligible ? "本次未形成主升段，連勝資格保留。" : ""}`
           : readAttempted
             ? "主要標的判讀錯誤，連續看對次數歸零。"
-            : "這次沒有形成明確方向判讀，不累積連勝。";
+            : unclearResetsStreak
+              ? "連續第 3 次方向未明，連續看對次數歸零。"
+              : `本次方向未明，連勝暫時保留（未明 ${unclearCount}／3 次）。`;
         const focusedIntels = intels.filter((intel) => intel.signal.role !== "market");
         const marketIntelCount = intels.length - focusedIntels.length;
         const marketIntelDetail = marketIntelCount > 0
@@ -2097,7 +2109,11 @@ export default function Home() {
         resolution.detail = `${resolution.detail} ${focusedIntels.map((intel) => `${intel.record.clue} ${intel.record.durationLabel}${intel.record.opportunityLabel ? `；${intel.record.opportunityLabel}` : ""}`).join("；")}${marketIntelDetail}；${streakNote}實際行情仍有隨機波動。`;
         resolution.deltas = [
           ...resolution.deltas,
-          readCorrect ? `連續看對 ${next.correctSignalStreak}／${BREAKOUT_STREAK_TARGET}` : readAttempted ? "連續看對 歸零" : "連續看對 不變",
+          readCorrect
+            ? `連續看對 ${next.correctSignalStreak}／${BREAKOUT_STREAK_TARGET}`
+            : readAttempted || unclearResetsStreak
+              ? "連續看對 歸零"
+              : `連續看對 保留・方向未明 ${unclearCount}／3`,
           ...(breakoutUnlocked ? ["稀有主升段 已解鎖"] : []),
           ...(foresightUnlocked ? ["提前一季情報 已取得"] : []),
         ];

@@ -1,11 +1,15 @@
 import { buildLifeEventDeck, events } from "../app/event-catalog.ts";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 
 const RUNS = Number(process.argv[2] ?? 10000);
 const BASE_WORK_HEALTH_COST = Number(process.argv[3] ?? 5);
 const SEED_OFFSET = Number(process.argv[4] ?? 0);
 const OUTPUT_PATH = process.argv[5] ?? null;
 const WORK_HEALTH_ESCALATION = Number(process.argv[6] ?? 1);
+const SEED_MODE = process.argv[7] ?? "sequential";
+const SEED_PREFIX = process.argv[8] ?? `RND-${Date.now().toString(36).toUpperCase()}`;
+if (!["sequential", "random"].includes(SEED_MODE)) throw new Error("Seed mode must be sequential or random");
 const GAME_VERSION = `v${JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8")).version}`;
 const YEARS = 9;
 const EVENTS_PER_YEAR = 8;
@@ -18,15 +22,15 @@ const RETIREMENT_NET = 30000000;
 const CREDIT_RATE = .06;
 const CREDIT_TERM_MONTHS = 60;
 const KOL_MAX_ANNUAL_INCOME = 1560000;
-const KNOWLEDGE_CLEAR_SIGNAL_LEVEL = 60;
-const KNOWLEDGE_CONFIDENCE_LEVEL = 73;
-const KNOWLEDGE_SIGNAL_BOOST_LEVEL = 82;
-const KNOWLEDGE_FORESIGHT_LEVEL = 90;
+const KNOWLEDGE_CLEAR_SIGNAL_LEVEL = 63;
+const KNOWLEDGE_CONFIDENCE_LEVEL = 75;
+const KNOWLEDGE_SIGNAL_BOOST_LEVEL = 86;
+const KNOWLEDGE_FORESIGHT_LEVEL = 93;
 const KNOWLEDGE_SIGNAL_MOVE_MULTIPLIER = 1.1;
 const FORESIGHT_CHANCE = .25;
 const BREAKOUT_STREAK_TARGET = 3;
-const BREAKOUT_UNLOCK_CHANCE = .18;
-const BREAKOUT_MOVE_MULTIPLIER = 1.8;
+const BREAKOUT_UNLOCK_CHANCE = .157;
+const BREAKOUT_MOVE_MULTIPLIER = 1.6;
 
 const CAREER_EVENT_LABELS = {
   workOvertime: "主管詢問是否加班",
@@ -52,6 +56,9 @@ const POLICIES = [
   { id: "aggressive", label: "高風險 KOL" },
   { id: "family", label: "全靠家裡" },
   { id: "random", label: "隨機韭菜" },
+  { id: "researcher", label: "深度研究派" },
+  { id: "cash", label: "現金觀望族" },
+  { id: "health", label: "健康優先派" },
 ];
 
 const TRAITS = [
@@ -174,6 +181,9 @@ function targetsOf(event) {
 }
 
 function intelAction(game, policy, random) {
+  if (policy === "researcher") return game.health < 30 ? "observe" : "research";
+  if (policy === "cash") return "observe";
+  if (policy === "health") return game.health < 70 ? "observe" : "research";
   if (policy === "safe") return game.knowledge < 55 ? "research" : "observe";
   if (policy === "balanced") {
     const roll = random();
@@ -234,6 +244,12 @@ function sell(game, key, ratio) {
 
 function tradeOnSignal(game, policy, target, perceived, eventIndex, random) {
   const targetKey = `${target.category}:${target.name}`;
+  if (policy === "cash") return;
+  if (policy === "researcher" || policy === "health") {
+    if (perceived === "bullish") buy(game, target, game.cash * (policy === "researcher" ? .25 : .15));
+    else if (perceived === "bearish") sell(game, targetKey, .5);
+    return;
+  }
   if (policy === "safe") {
     const chosen = target.category === "ETF" ? target : ETF_CATALOG[eventIndex % ETF_CATALOG.length];
     const key = `${chosen.category}:${chosen.name}`;
@@ -336,6 +352,8 @@ function closeQuarter(game, random) {
 }
 
 function incomePath(game, policy, random) {
+  if (policy === "researcher") return game.year <= 2 ? "work" : "kol";
+  if (policy === "cash" || policy === "health") return "work";
   if (policy === "safe") return "work";
   if (policy === "balanced") return game.year <= 3 || game.year % 2 === 1 ? "work" : "kol";
   if (policy === "aggressive") return "kol";
@@ -387,6 +405,8 @@ function promotionShare(game) {
 
 function chooseCareerOption(game, policy, id, random) {
   if (policy === "random") return random() < .5 ? "A" : "B";
+  if (policy === "cash" || policy === "health") return "B";
+  if (policy === "researcher") return id === "kolCrashBacklash" || id === "kolInvestigation" ? "A" : "B";
   if (id === "workOvertime") {
     if (policy === "aggressive") return "A";
     if (policy === "balanced") return game.health >= 48 && game.stress <= 78 ? "A" : "B";
@@ -738,7 +758,7 @@ function maybeIllness(game, policy, random) {
   const fullCost = Math.round(base * costFactor / 1000) * 1000;
   game.illnesses += 1;
   game.illnessCooldown = game.health < 20 ? 2 : 4;
-  const choice = policy === "safe" ? "treat" : policy === "balanced" ? (game.family >= 60 ? "family" : "treat") : policy === "aggressive" ? (severity === "severe" ? "treat" : "push") : policy === "family" ? "family" : ["push", "treat", "family"][Math.floor(random() * 3)];
+  const choice = ["researcher", "cash", "health"].includes(policy) ? "treat" : policy === "safe" ? "treat" : policy === "balanced" ? (game.family >= 60 ? "family" : "treat") : policy === "aggressive" ? (severity === "severe" ? "treat" : "push") : policy === "family" ? "family" : ["push", "treat", "family"][Math.floor(random() * 3)];
   if (choice === "push") {
     const basic = Math.min(Math.max(0, game.cash), Math.max(1000, Math.round(fullCost * .08 / 1000) * 1000));
     game.cash -= basic;
@@ -853,6 +873,7 @@ function makeGame(seedCode) {
     income: 0,
     lastYearMarketMove: 0,
     correctSignalStreak: 0,
+    correctSignalUnclearCount: 0,
     maxCorrectSignalStreak: 0,
     breakoutOpportunities: 0,
     foresightSignals: 0,
@@ -968,10 +989,22 @@ function unlockedAchievements(game) {
   return unlocked;
 }
 
+const randomSeedCodes = [];
+if (SEED_MODE === "random") {
+  const seen = new Set();
+  while (randomSeedCodes.length < RUNS) {
+    const seedCode = `${SEED_PREFIX}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+    if (!seen.has(seedCode)) {
+      seen.add(seedCode);
+      randomSeedCodes.push(seedCode);
+    }
+  }
+}
+
 function play(run) {
   const policy = POLICIES[run % POLICIES.length];
   const seedIndex = run + SEED_OFFSET;
-  const seedCode = `SIM-${seedIndex.toString(36).toUpperCase().padStart(6, "0")}`;
+  const seedCode = SEED_MODE === "random" ? randomSeedCodes[run] : `SIM-${seedIndex.toString(36).toUpperCase().padStart(6, "0")}`;
   const seed = hash(`chive-life:${seedCode}`);
   const random = mulberry32(seed);
   const deck = buildLifeEventDeck(seed, YEARS);
@@ -1038,7 +1071,15 @@ function play(run) {
         const perceived = action ? visibleDirection(game, action, "primary", direction, primaryHash) : null;
         const readAttempted = perceived !== null;
         const readCorrect = readAttempted && perceived === direction;
-        const streak = hidden ? game.correctSignalStreak : readCorrect ? game.correctSignalStreak + 1 : 0;
+        const unclearCount = hidden || readAttempted ? 0 : game.correctSignalUnclearCount + 1;
+        const unclearResetsStreak = !hidden && !readAttempted && unclearCount >= 3;
+        const streak = hidden
+          ? game.correctSignalStreak
+          : readCorrect
+            ? game.correctSignalStreak + 1
+            : readAttempted || unclearResetsStreak
+              ? 0
+              : game.correctSignalStreak;
         const breakoutEligible = !hidden && readCorrect && streak >= BREAKOUT_STREAK_TARGET && direction === "bullish";
         const breakoutUnlocked = breakoutEligible && random() < BREAKOUT_UNLOCK_CHANCE;
         const foresightUnlocked = !hidden && readCorrect && game.knowledge >= KNOWLEDGE_FORESIGHT_LEVEL && random() < FORESIGHT_CHANCE;
@@ -1049,6 +1090,7 @@ function play(run) {
           game.totalCorrectReads += readCorrect ? 1 : 0;
           game.maxCorrectSignalStreak = Math.max(game.maxCorrectSignalStreak, streak);
           game.correctSignalStreak = breakoutUnlocked ? 0 : streak;
+          game.correctSignalUnclearCount = readAttempted || unclearResetsStreak ? 0 : unclearCount;
         }
         if (breakoutUnlocked) game.breakoutOpportunities += 1;
         if (foresightUnlocked) game.foresightSignals += 1;
@@ -1097,7 +1139,7 @@ function play(run) {
         surprise = { key: `${target.category}:${target.name}`, direction: random() < .5 ? "bullish" : "bearish" };
         if (held.length && game.tradeSuspensionQuarters <= 0) {
           if (policy.id === "aggressive" && surprise.direction === "bullish") buy(game, target, game.cash * .25);
-          else if (["safe", "balanced"].includes(policy.id) && surprise.direction === "bearish") sell(game, surprise.key, policy.id === "safe" ? .5 : 1);
+          else if (["safe", "balanced", "researcher", "health"].includes(policy.id) && surprise.direction === "bearish") sell(game, surprise.key, policy.id === "safe" ? .5 : 1);
           else if (policy.id === "random" && random() < .5) {
             if (surprise.direction === "bullish") buy(game, target, game.cash * .2);
             else sell(game, surprise.key, 1);
@@ -1149,6 +1191,9 @@ function quantile(values, q) {
   const fraction = index - lower;
   return Math.round(sorted[lower] + ((sorted[lower + 1] ?? sorted[lower]) - sorted[lower]) * fraction);
 }
+
+const maximumOf = (items, selector) => items.reduce((maximum, item) => Math.max(maximum, selector(item)), -Infinity);
+const minimumOf = (items, selector) => items.reduce((minimum, item) => Math.min(minimum, selector(item)), Infinity);
 
 const games = Array.from({ length: RUNS }, (_, run) => play(run));
 const endings = Object.fromEntries([...new Set(games.map((game) => game.ending))].map((ending) => [ending, games.filter((game) => game.ending === ending).length]));
@@ -1209,7 +1254,7 @@ function summaryFor(subset) {
     averageTrendKnowledgeLost: Number((subset.reduce((sum, game) => sum + game.totalTrendKnowledgeLost, 0) / subset.length).toFixed(1)),
     averageKolReputation: Number((subset.reduce((sum, game) => sum + game.kolReputation, 0) / subset.length).toFixed(1)),
     averageKolIncome: Math.round(subset.reduce((sum, game) => sum + game.totalKolIncome, 0) / Math.max(1, subset.reduce((sum, game) => sum + game.kolYears, 0))),
-    maxKolIncome: Math.max(...subset.map((game) => game.maxKolIncome)),
+    maxKolIncome: maximumOf(subset, (game) => game.maxKolIncome),
     averageCareerEvents: Number((careerEventsTriggered / subset.length).toFixed(2)),
     careerEventQuarterHitRate: Number((careerEventsTriggered / Math.max(1, careerEligibleQuarters)).toFixed(4)),
     averageCareerEventIncome: Math.round(subset.reduce((sum, game) => sum + game.careerEventCashIncome, 0) / subset.length),
@@ -1301,7 +1346,10 @@ const report = {
   configuration: {
     gameVersion: GAME_VERSION,
     runs: RUNS,
-    seedRange: `SIM ${SEED_OFFSET.toLocaleString()}–${(SEED_OFFSET + RUNS - 1).toLocaleString()}`,
+    seedMode: SEED_MODE,
+    seedRange: SEED_MODE === "random" ? `${SEED_PREFIX}-XXXXXXXXXXXX，共 ${RUNS.toLocaleString()} 組不重複隨機種子` : `SIM ${SEED_OFFSET.toLocaleString()}–${(SEED_OFFSET + RUNS - 1).toLocaleString()}`,
+    uniqueSeedCount: SEED_MODE === "random" ? new Set(randomSeedCodes).size : RUNS,
+    seedListSha256: SEED_MODE === "random" ? crypto.createHash("sha256").update(randomSeedCodes.join("\n")).digest("hex") : null,
     baseWorkHealthCost: BASE_WORK_HEALTH_COST,
     workHealthEscalation: WORK_HEALTH_ESCALATION,
     workHealthRule: `前兩年 −${BASE_WORK_HEALTH_COST}，第 3 年起每個連續工作年再多扣 ${WORK_HEALTH_ESCALATION}`,
@@ -1316,12 +1364,12 @@ const report = {
       manager: "年薪永久 +18%，年度健康額外 −1、壓力 +3，每季固定少看一則新聞",
       investigation: "配合調查停權 2 季；硬拗 40% 過關，60% 支出 50 萬並停權 4 季",
     },
-    breakoutRule: `${BREAKOUT_STREAK_TARGET} 次連續判讀正確後，偏多事件有 ${Math.round(BREAKOUT_UNLOCK_CHANCE * 100)}% 機率形成主升段，行情倍率 ${BREAKOUT_MOVE_MULTIPLIER}`,
+    breakoutRule: `${BREAKOUT_STREAK_TARGET} 次連續判讀正確後，偏多事件有 ${(BREAKOUT_UNLOCK_CHANCE * 100).toFixed(1)}% 機率形成主升段；前兩次方向未明保留連勝，第 3 次歸零；行情倍率 ${BREAKOUT_MOVE_MULTIPLIER}`,
     knowledgeThresholds: { clearSignal: KNOWLEDGE_CLEAR_SIGNAL_LEVEL, confidence: KNOWLEDGE_CONFIDENCE_LEVEL, signalBoost: KNOWLEDGE_SIGNAL_BOOST_LEVEL, foresight: KNOWLEDGE_FORESIGHT_LEVEL },
     mainTraitCount: TRAITS.length,
     paperHandsChance: 1 / PAPER_HANDS_CHANCE_DENOMINATOR,
     policies: Object.fromEntries(POLICIES.map((policy) => [policy.label, games.filter((game) => game.policy === policy.label).length])),
-    note: "以五種固定策略代理玩家操作；收入、生活費、情報 A/B/C 健康代價、交易、每日複利波動、突襲、生病、信貸本息、種子初始能力、六種主體質、獨立紙手體質、麥當當與 KOL 季度職業事件、隱藏新聞、停權與結算條件均納入。不是窮舉所有真人選擇。",
+    note: "以八種固定策略代理玩家操作；收入、生活費、情報 A/B/C 健康代價、交易、每日複利波動、突襲、生病、信貸本息、種子初始能力、六種主體質、獨立紙手體質、麥當當與 KOL 季度職業事件、隱藏新聞、停權與結算條件均納入。不是窮舉所有真人選擇。",
   },
   overall: summaryFor(games),
   careerEvents: careerEventSummary(games),
@@ -1329,7 +1377,7 @@ const report = {
     passed: careerLimitViolations.length === 0 && careerOutcomeMismatchRuns.length === 0,
     eventLimitViolations: careerLimitViolations,
     outcomeMismatchSeeds: careerOutcomeMismatchRuns.map((game) => game.seedCode),
-    maximumCountsInOneRun: Object.fromEntries(CAREER_EVENT_IDS.map((id) => [CAREER_EVENT_LABELS[id], Math.max(...games.map((game) => game.careerEventCounts[id]))])),
+    maximumCountsInOneRun: Object.fromEntries(CAREER_EVENT_IDS.map((id) => [CAREER_EVENT_LABELS[id], maximumOf(games, (game) => game.careerEventCounts[id])])),
   },
   endings: Object.fromEntries(Object.entries(endings).sort((left, right) => right[1] - left[1]).map(([ending, count]) => [ending, { count, rate: Number((count / RUNS).toFixed(4)) }])),
   achievements: Object.fromEntries(ACHIEVEMENTS.map(([, title]) => [title, { count: achievementCounts[title], rate: Number((achievementCounts[title] / RUNS).toFixed(4)) }])),
@@ -1344,13 +1392,13 @@ const report = {
     ["無紙手體質", games.filter((game) => !game.paperHands)],
   ].map(([label, subset]) => [label, { ...summaryFor(subset), endings: endingsFor(subset) }])),
   extremes: {
-    minimumNetWorth: Math.round(Math.min(...games.map(netWorth))),
-    maximumNetWorth: Math.round(Math.max(...games.map(netWorth))),
-    maximumDebt: Math.round(Math.max(...games.map((game) => game.generalDebt + game.familyDebt))),
-    maximumKolIncome: Math.max(...games.map((game) => game.maxKolIncome)),
-    maximumBreakoutOpportunities: Math.max(...games.map((game) => game.breakoutOpportunities)),
-    maximumCorrectSignalStreak: Math.max(...games.map((game) => game.maxCorrectSignalStreak)),
-    maximumAchievementsInOneRun: Math.max(...games.map((game) => game.unlocked.size)),
+    minimumNetWorth: Math.round(minimumOf(games, netWorth)),
+    maximumNetWorth: Math.round(maximumOf(games, netWorth)),
+    maximumDebt: Math.round(maximumOf(games, (game) => game.generalDebt + game.familyDebt)),
+    maximumKolIncome: maximumOf(games, (game) => game.maxKolIncome),
+    maximumBreakoutOpportunities: maximumOf(games, (game) => game.breakoutOpportunities),
+    maximumCorrectSignalStreak: maximumOf(games, (game) => game.maxCorrectSignalStreak),
+    maximumAchievementsInOneRun: maximumOf(games, (game) => game.unlocked.size),
   },
 };
 

@@ -46,14 +46,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE112');
+  const game = gameApi.makeGame('', 'RELEASE113');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.1.2 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.1.2');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.2');
-  assert.match(wiki, /適用版本：`v1\.1\.2`/);
+test('v1.1.3 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.1.3');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.3');
+  assert.match(wiki, /適用版本：`v1\.1\.3`/);
 });
 test('retired property and mortgage mechanics stay removed without changing credit or family loans', () => {
   const retiredMechanics = [
@@ -152,7 +152,7 @@ test('mobile role profile uses a compact summary trigger and dismissible bottom 
   assert.match(mobileSheetCss, /max-height:min\(88dvh,760px\)/);
   assert.match(mobileSheetCss, /env\(safe-area-inset-bottom,0px\)/);
 });
-test('v1.1.2 balance figures stay synchronized across game, simulator and Wiki', () => {
+test('v1.1.3 balance figures stay synchronized across game, simulator and Wiki', () => {
   const optimistic = gameApi.traits.find(([name]) => name === '天生樂觀')[2];
   const frail = gameApi.traits.find(([name]) => name === '體弱多病')[2];
   const brokenFamily = gameApi.traits.find(([name]) => name === '家破人亡')[2];
@@ -166,6 +166,16 @@ test('v1.1.2 balance figures stay synchronized across game, simulator and Wiki',
   assert.match(approximateSimulator,/multiplier \* \(1\.25 \+ random\(\) \* \.5\)/);
   for(const expected of ['1.25～1.75 倍','1.75 倍','健康 +2','壓力 −10','56～64','30～46']) assert(wiki.includes(expected),expected);
 });
+test('breakout uses 15.7 percent chance and tolerates two unclear reads', () => {
+  assert.match(source, /BREAKOUT_UNLOCK_CHANCE_PERCENT = 15\.7/);
+  assert.match(source, /% 1000 < BREAKOUT_UNLOCK_CHANCE_PERCENT \* 10/);
+  assert.match(source, /previousUnclearCount \+ 1/);
+  assert.match(source, /unclearCount >= 3/);
+  assert.match(source, /連續第 3 次方向未明，連續看對次數歸零/);
+  assert.match(approximateSimulator, /BREAKOUT_UNLOCK_CHANCE = \.157/);
+  assert.match(wiki, /15\.7%/);
+  assert.match(wiki, /前兩次方向未明會保留連勝/);
+});
 test('everyone becomes an expert pays 1.75 times trend income in game and simulator', () => {
   const event = catalog.buildLifeEventDeck(106,20).find(item => item.lensIndex === 2);
   assert(event);
@@ -176,11 +186,11 @@ test('everyone becomes an expert pays 1.75 times trend income in game and simula
   assert.equal(trendChoice.intelEffects.cash,Math.round(baseCash * 1.75));
   assert.match(approximateSimulator,/event\.lensEffect\.trendCashMultiplier/);
 });
-test('Wiki includes existing v1.1.2 figures and event effects', () => {
+test('Wiki includes existing v1.1.3 figures and event effects', () => {
   for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });
-test('career event prices and penalties stay synchronized in v1.1.2', () => {
+test('career event prices and penalties stay synchronized in v1.1.3', () => {
   assert.match(source, /reputation >= 80 \? 300000 : reputation >= 50 \? 160000 : 100000/);
   assert.match(source, /堅稱只是長期布局，繼續喊/);
   assert.match(source, /投資知識 −3/);
@@ -195,7 +205,7 @@ test('retired position trade dialog and styles stay removed', () => {
     assert(!css.includes(retired), retired);
   }
 });
-test('local simulation and event export tools follow the current v1.1.2 rules', () => {
+test('local simulation and event export tools follow the current v1.1.3 rules', () => {
   for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
   for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
   assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);
