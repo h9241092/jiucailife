@@ -610,62 +610,314 @@ function WealthHistoryChart({ game }: { game: Game }) {
   </section>;
 }
 
-async function endingCardPng(element: HTMLElement) {
-  await document.fonts?.ready;
-  const clone = element.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll("[data-screenshot-control]").forEach((control) => control.remove());
-  clone.style.animation = "none";
-  clone.style.margin = "0";
-  clone.style.width = `${Math.ceil(element.getBoundingClientRect().width)}px`;
-  clone.style.maxWidth = "none";
+const ENDING_SHARE_WIDTH = 1080;
+const ENDING_SHARE_HEIGHT = 1920;
+const ENDING_SHARE_FONT = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", Arial, sans-serif';
 
-  const width = Math.ceil(element.scrollWidth);
-  const height = Math.ceil(element.scrollHeight);
-  const wrapper = document.createElement("div");
-  wrapper.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-  wrapper.style.width = `${width}px`;
-  wrapper.style.minHeight = `${height}px`;
-  wrapper.style.padding = "24px";
-  wrapper.style.boxSizing = "border-box";
-  wrapper.style.background = "#080b14";
+function roundedCanvasRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
 
-  const rootStyle = getComputedStyle(document.documentElement);
-  ["--ink", "--paper", "--cream", "--green", "--lime", "--line", "--red", "--blue", "--gold", "--muted"].forEach((property) => {
-    wrapper.style.setProperty(property, rootStyle.getPropertyValue(property));
-  });
-  const style = document.createElement("style");
-  style.textContent = Array.from(document.styleSheets).map((sheet) => {
-    try { return Array.from(sheet.cssRules).map((rule) => rule.cssText).join("\n"); }
-    catch { return ""; }
-  }).join("\n");
-  wrapper.appendChild(style);
-  wrapper.appendChild(clone);
-
-  const serialized = new XMLSerializer().serializeToString(wrapper);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width + 48}" height="${height + 48}" viewBox="0 0 ${width + 48} ${height + 48}"><foreignObject width="100%" height="100%">${serialized}</foreignObject></svg>`;
-  const svgUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-  try {
-    const image = new Image();
-    image.decoding = "async";
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error("Screenshot render failed"));
-      image.src = svgUrl;
-    });
-    const scale = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round((width + 48) * scale);
-    canvas.height = Math.round((height + 48) * scale);
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas is unavailable");
-    context.scale(scale, scale);
-    context.fillStyle = "#080b14";
-    context.fillRect(0, 0, width + 48, height + 48);
-    context.drawImage(image, 0, 0, width + 48, height + 48);
-    return await new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG export failed")), "image/png"));
-  } finally {
-    URL.revokeObjectURL(svgUrl);
+function fittedCanvasFont(context: CanvasRenderingContext2D, text: string, maximumWidth: number, preferredSize: number, minimumSize: number, weight = 800) {
+  let size = preferredSize;
+  while (size > minimumSize) {
+    context.font = `${weight} ${size}px ${ENDING_SHARE_FONT}`;
+    if (context.measureText(text).width <= maximumWidth) return size;
+    size -= 2;
   }
+  context.font = `${weight} ${minimumSize}px ${ENDING_SHARE_FONT}`;
+  return minimumSize;
+}
+
+function drawWrappedCanvasText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maximumWidth: number, lineHeight: number, maximumLines: number) {
+  const characters = Array.from(text);
+  const lines: string[] = [];
+  let line = "";
+  characters.forEach((character) => {
+    const candidate = `${line}${character}`;
+    if (line && context.measureText(candidate).width > maximumWidth) {
+      lines.push(line);
+      line = character;
+    } else line = candidate;
+  });
+  if (line) lines.push(line);
+  const visibleLines = lines.slice(0, maximumLines);
+  if (lines.length > maximumLines && visibleLines.length) {
+    let last = visibleLines[visibleLines.length - 1];
+    while (last.length && context.measureText(`${last}…`).width > maximumWidth) last = last.slice(0, -1);
+    visibleLines[visibleLines.length - 1] = `${last}…`;
+  }
+  visibleLines.forEach((visibleLine, index) => context.fillText(visibleLine, x, y + index * lineHeight));
+  return y + visibleLines.length * lineHeight;
+}
+
+function canvasPng(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("PNG_EXPORT_FAILED")), "image/png");
+  });
+}
+
+async function endingCardPng(game: Game, achievements: AchievementResult[]) {
+  await document.fonts?.ready;
+  const canvas = document.createElement("canvas");
+  canvas.width = ENDING_SHARE_WIDTH;
+  canvas.height = ENDING_SHARE_HEIGHT;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("CANVAS_UNAVAILABLE");
+
+  const palette = {
+    background: "#080b14", panel: "#101626", panelDeep: "#0b0f1a", line: "#2d3655",
+    ink: "#eef2ff", muted: "#8f99b7", green: "#43dcc0", lime: "#c7f36b",
+    red: "#ff6f7d", blue: "#6e7cff", gold: "#f5c866",
+  };
+  const panel = (x: number, y: number, width: number, height: number, radius = 28) => {
+    roundedCanvasRect(context, x, y, width, height, radius);
+    context.fillStyle = palette.panel;
+    context.fill();
+    context.strokeStyle = palette.line;
+    context.lineWidth = 2;
+    context.stroke();
+  };
+  const drawStat = (label: string, value: string, x: number, y: number, width: number, tone = palette.ink) => {
+    roundedCanvasRect(context, x, y, width, 104, 18);
+    context.fillStyle = palette.panelDeep;
+    context.fill();
+    context.strokeStyle = palette.line;
+    context.stroke();
+    context.textAlign = "left";
+    context.fillStyle = palette.muted;
+    context.font = `700 22px ${ENDING_SHARE_FONT}`;
+    context.fillText(label, x + 22, y + 35);
+    context.fillStyle = tone;
+    fittedCanvasFont(context, value, width - 44, 32, 23, 850);
+    context.fillText(value, x + 22, y + 79);
+  };
+
+  const background = context.createLinearGradient(0, 0, ENDING_SHARE_WIDTH, ENDING_SHARE_HEIGHT);
+  background.addColorStop(0, "#080b14");
+  background.addColorStop(.55, "#0b1020");
+  background.addColorStop(1, "#10162a");
+  context.fillStyle = background;
+  context.fillRect(0, 0, ENDING_SHARE_WIDTH, ENDING_SHARE_HEIGHT);
+  context.textBaseline = "alphabetic";
+
+  const markGradient = context.createLinearGradient(64, 58, 150, 144);
+  markGradient.addColorStop(0, palette.green);
+  markGradient.addColorStop(1, palette.blue);
+  roundedCanvasRect(context, 64, 58, 86, 86, 24);
+  context.fillStyle = markGradient;
+  context.fill();
+  context.textAlign = "center";
+  context.fillStyle = "white";
+  context.font = `900 50px ${ENDING_SHARE_FONT}`;
+  context.fillText("韭", 107, 119);
+  context.textAlign = "left";
+  context.fillStyle = palette.ink;
+  context.font = `850 34px ${ENDING_SHARE_FONT}`;
+  context.fillText("韭菜人生模擬器", 174, 96);
+  context.fillStyle = palette.muted;
+  context.font = `800 19px ${ENDING_SHARE_FONT}`;
+  context.fillText("JIU-CAI LIFE", 176, 129);
+  context.textAlign = "right";
+  context.fillStyle = palette.muted;
+  context.font = `700 19px ${ENDING_SHARE_FONT}`;
+  context.fillText(`${GAME_VERSION}  ·  種子 ${game.seedCode}`, 1016, 89);
+  context.fillText(`${game.age} 歲結算`, 1016, 121);
+
+  const [endingTitle, endingDescription] = titleForEnding(game);
+  context.textAlign = "left";
+  context.fillStyle = palette.green;
+  context.font = `850 22px ${ENDING_SHARE_FONT}`;
+  context.fillText("我的韭菜人生結算", 64, 205);
+  context.fillStyle = palette.ink;
+  fittedCanvasFont(context, endingTitle, 952, 78, 58, 900);
+  context.fillText(endingTitle, 64, 286);
+  context.fillStyle = palette.muted;
+  context.font = `600 26px ${ENDING_SHARE_FONT}`;
+  drawWrappedCanvasText(context, endingDescription, 64, 337, 952, 40, 2);
+
+  const net = netWorth(game);
+  const totalAssets = game.assets.reduce((sum, asset) => sum + asset.value, 0);
+  const wealthHistory = endingWealthHistory(game);
+  const wealthValues = wealthHistory.map((snapshot) => snapshot.netWorth);
+  const highest = wealthHistory.reduce((best, snapshot) => snapshot.netWorth > best.netWorth ? snapshot : best);
+  const lowest = wealthHistory.reduce((worst, snapshot) => snapshot.netWorth < worst.netWorth ? snapshot : worst);
+  const wealthChange = wealthHistory[wealthHistory.length - 1].netWorth - wealthHistory[0].netWorth;
+
+  const worthGradient = context.createLinearGradient(64, 410, 1016, 610);
+  worthGradient.addColorStop(0, "#1d866f");
+  worthGradient.addColorStop(1, "#5968dd");
+  roundedCanvasRect(context, 64, 410, 952, 200, 30);
+  context.fillStyle = worthGradient;
+  context.fill();
+  context.fillStyle = "rgba(255,255,255,.82)";
+  context.font = `750 24px ${ENDING_SHARE_FONT}`;
+  context.fillText("最終淨資產", 104, 462);
+  context.fillStyle = "white";
+  fittedCanvasFont(context, formatMoney(net), 872, 74, 48, 900);
+  context.fillText(formatMoney(net), 104, 552);
+
+  panel(64, 642, 952, 506);
+  context.fillStyle = palette.muted;
+  context.font = `800 20px ${ENDING_SHARE_FONT}`;
+  context.fillText("歷年總財產", 96, 687);
+  context.fillStyle = palette.ink;
+  context.font = `850 36px ${ENDING_SHARE_FONT}`;
+  context.fillText("你的財富走勢", 96, 732);
+  context.textAlign = "right";
+  context.fillStyle = wealthChange >= 0 ? palette.green : palette.red;
+  context.font = `850 32px ${ENDING_SHARE_FONT}`;
+  context.fillText(`${wealthChange >= 0 ? "+" : "−"}${formatMoney(Math.abs(wealthChange)).replace("NT$ ", "")}`, 984, 724);
+
+  const plot = { x: 108, y: 774, width: 864, height: 224 };
+  const scaleMinimum = Math.min(0, ...wealthValues);
+  const scaleMaximum = Math.max(0, ...wealthValues);
+  const scaleRange = Math.max(1, scaleMaximum - scaleMinimum);
+  const pointX = (index: number) => wealthHistory.length <= 1 ? plot.x + plot.width / 2 : plot.x + index / (wealthHistory.length - 1) * plot.width;
+  const pointY = (value: number) => plot.y + plot.height - 18 - (value - scaleMinimum) / scaleRange * (plot.height - 36);
+  context.lineWidth = 1;
+  context.strokeStyle = "rgba(143,153,183,.24)";
+  [0, .25, .5, .75, 1].forEach((position) => {
+    const y = plot.y + position * plot.height;
+    context.beginPath(); context.moveTo(plot.x, y); context.lineTo(plot.x + plot.width, y); context.stroke();
+  });
+  if (scaleMinimum < 0 && scaleMaximum > 0) {
+    const zeroY = pointY(0);
+    context.setLineDash([8, 8]);
+    context.strokeStyle = "rgba(245,200,102,.6)";
+    context.beginPath(); context.moveTo(plot.x, zeroY); context.lineTo(plot.x + plot.width, zeroY); context.stroke();
+    context.setLineDash([]);
+  }
+  wealthHistory.slice(1).forEach((snapshot, index) => {
+    const previous = wealthHistory[index];
+    context.beginPath();
+    context.moveTo(pointX(index), pointY(previous.netWorth));
+    context.lineTo(pointX(index + 1), pointY(snapshot.netWorth));
+    context.strokeStyle = snapshot.netWorth >= previous.netWorth ? palette.green : palette.red;
+    context.lineWidth = 6;
+    context.lineCap = "round";
+    context.stroke();
+  });
+  wealthHistory.forEach((snapshot, index) => {
+    context.beginPath();
+    context.arc(pointX(index), pointY(snapshot.netWorth), index === wealthHistory.length - 1 ? 10 : 7, 0, Math.PI * 2);
+    context.fillStyle = snapshot.netWorth >= 0 ? palette.green : palette.red;
+    context.fill();
+    context.lineWidth = 4;
+    context.strokeStyle = palette.panelDeep;
+    context.stroke();
+  });
+  context.fillStyle = palette.muted;
+  context.font = `700 18px ${ENDING_SHARE_FONT}`;
+  context.textAlign = "center";
+  wealthHistory.forEach((snapshot, index) => {
+    if (index === 0 || index === wealthHistory.length - 1 || snapshot.age % 2 === 0) context.fillText(`${snapshot.age}歲`, pointX(index), 1032);
+  });
+  context.textAlign = "left";
+  const footerItems = [
+    ["起點", formatMoney(wealthHistory[0].netWorth)],
+    [`最高 · ${highest.age}歲`, formatMoney(highest.netWorth)],
+    [`最低 · ${lowest.age}歲`, formatMoney(lowest.netWorth)],
+    ["最終", formatMoney(net)],
+  ];
+  footerItems.forEach(([label, value], index) => {
+    const x = 96 + index * 222;
+    context.fillStyle = palette.muted;
+    context.font = `700 17px ${ENDING_SHARE_FONT}`;
+    context.fillText(label, x, 1083);
+    context.fillStyle = palette.ink;
+    fittedCanvasFont(context, value, 202, 23, 17, 800);
+    context.fillText(value, x, 1115);
+  });
+
+  panel(64, 1180, 952, 314);
+  context.fillStyle = palette.muted;
+  context.font = `800 20px ${ENDING_SHARE_FONT}`;
+  context.fillText("角色結算", 96, 1223);
+  context.fillStyle = palette.ink;
+  context.font = `900 36px ${ENDING_SHARE_FONT}`;
+  context.fillText(game.name, 96, 1268);
+  context.fillStyle = palette.muted;
+  context.font = `650 21px ${ENDING_SHARE_FONT}`;
+  context.fillText(`${game.background} · ${game.occupation || "無業"}`, 96, 1303);
+  context.textAlign = "right";
+  context.fillStyle = palette.green;
+  fittedCanvasFont(context, `${game.trait}${game.specialTrait ? ` · ${game.specialTrait}` : ""}`, 430, 23, 17, 800);
+  context.fillText(`${game.trait}${game.specialTrait ? ` · ${game.specialTrait}` : ""}`, 984, 1268);
+  const statWidth = 210;
+  drawStat("現金", formatMoney(game.cash), 96, 1334, statWidth);
+  drawStat("投資資產", formatMoney(totalAssets), 320, 1334, statWidth);
+  drawStat("負債", formatMoney(game.debt), 544, 1334, statWidth, game.debt > 0 ? palette.red : palette.ink);
+  drawStat("知識／健康／壓力", `${game.gauges.knowledge}／${game.gauges.health}／${game.gauges.stress}`, 768, 1334, 216);
+
+  const unlocked = achievements.filter((achievement) => achievement.unlocked);
+  context.textAlign = "left";
+  context.fillStyle = palette.muted;
+  context.font = `800 20px ${ENDING_SHARE_FONT}`;
+  context.fillText("本局解鎖成就", 64, 1555);
+  context.fillStyle = palette.ink;
+  context.font = `900 34px ${ENDING_SHARE_FONT}`;
+  context.fillText(`${unlocked.length}／${achievements.length}`, 64, 1598);
+  context.fillStyle = palette.muted;
+  const achievementSummary = unlocked.length
+    ? `傷疤已成功鑄成徽章${unlocked.length > 6 ? ` · 另有 ${unlocked.length - 6} 項` : ""}`
+    : "這局先留下經驗，徽章下次再拿";
+  fittedCanvasFont(context, achievementSummary, 800, 19, 15, 650);
+  context.fillText(achievementSummary, 184, 1595);
+  const tierColors: Record<AchievementResult["tier"], string> = { 傳說: palette.gold, 史詩: "#d59cff", 稀有: palette.green, 一般: palette.lime };
+  const visibleAchievements = unlocked.slice(0, 6);
+  if (visibleAchievements.length) {
+    visibleAchievements.forEach((achievement, index) => {
+      const column = index % 2;
+      const row = Math.floor(index / 2);
+      const x = 64 + column * 484;
+      const y = 1632 + row * 82;
+      roundedCanvasRect(context, x, y, 468, 68, 16);
+      context.fillStyle = "rgba(16,22,38,.92)";
+      context.fill();
+      context.strokeStyle = tierColors[achievement.tier];
+      context.lineWidth = 2;
+      context.stroke();
+      context.fillStyle = tierColors[achievement.tier];
+      context.font = `850 17px ${ENDING_SHARE_FONT}`;
+      context.fillText(achievement.tier, x + 18, y + 27);
+      context.fillStyle = palette.ink;
+      fittedCanvasFont(context, achievement.title, 330, 23, 17, 800);
+      context.fillText(achievement.title, x + 116, y + 43);
+    });
+  } else {
+    roundedCanvasRect(context, 64, 1632, 952, 150, 22);
+    context.fillStyle = palette.panel;
+    context.fill();
+    context.strokeStyle = palette.line;
+    context.stroke();
+    context.fillStyle = palette.muted;
+    context.font = `700 24px ${ENDING_SHARE_FONT}`;
+    context.textAlign = "center";
+    context.fillText("尚未解鎖成就，再活一次看看。", 540, 1720);
+  }
+
+  context.textAlign = "left";
+  context.fillStyle = palette.green;
+  context.font = `850 21px ${ENDING_SHARE_FONT}`;
+  context.fillText("市場有風險，韭菜有新鮮度。", 64, 1880);
+  context.textAlign = "right";
+  context.fillStyle = palette.muted;
+  context.font = `700 17px ${ENDING_SHARE_FONT}`;
+  context.fillText("jiucai-life-simulator.mmrichdog.workers.dev", 1016, 1880);
+
+  return canvasPng(canvas);
 }
 const addKnowledge = (gauges: GaugeStats, baseGain: number) => {
   const remainingFactor = Math.pow(Math.max(0, 100 - gauges.knowledge) / 100, 1.35);
@@ -1635,8 +1887,8 @@ export default function Home() {
   const [brokerCategory, setBrokerCategory] = useState("台股");
   const [brokerNotice, setBrokerNotice] = useState<string | null>(null);
   const [quarterReport, setQuarterReport] = useState<Resolution | null>(null);
-  const endingCardRef = useRef<HTMLElement | null>(null);
-  const [screenshotState, setScreenshotState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [screenshotState, setScreenshotState] = useState<"idle" | "saving" | "ready" | "saved" | "error">("idle");
+  const [screenshotPreview, setScreenshotPreview] = useState<{ url: string; filename: string } | null>(null);
 
   const trackAnonymous = useCallback((eventType: AnonymousEventType, data: Record<string, string | number | boolean | null | string[]> = {}, snapshot: Game | null = game) => {
     const runId = analyticsRunId.current;
@@ -1710,6 +1962,21 @@ export default function Home() {
       mobileViewport.removeEventListener("change", closeOnDesktop);
     };
   }, [mobileProfileOpen]);
+
+  useEffect(() => {
+    if (!screenshotPreview) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setScreenshotPreview(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+      URL.revokeObjectURL(screenshotPreview.url);
+    };
+  }, [screenshotPreview]);
 
   useEffect(() => {
     analyticsLatestGame.current = game;
@@ -3344,6 +3611,7 @@ export default function Home() {
     setBrokerNotice(null);
     setQuarterReport(null);
     setScreenshotState("idle");
+    setScreenshotPreview(null);
     setShowForeword(false);
     setHideForewordNext(false);
   }
@@ -3364,21 +3632,16 @@ export default function Home() {
   }
 
   async function saveEndingScreenshot() {
-    if (!game || !endingCardRef.current || screenshotState === "saving") return;
+    if (!game || screenshotState === "saving") return;
     setScreenshotState("saving");
     try {
-      const blob = await endingCardPng(endingCardRef.current);
+      const blob = await endingCardPng(game, achievementsFor(game));
       const objectUrl = URL.createObjectURL(blob);
       const safeName = game.name.replace(/[\\/:*?"<>|]/g, "-").trim().slice(0, 20) || "韭菜";
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = `韭菜人生-${safeName}-${game.seedCode}-${GAME_VERSION}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-      setScreenshotState("saved");
-    } catch {
+      setScreenshotPreview({ url: objectUrl, filename: `韭菜人生-${safeName}-${game.seedCode}-${GAME_VERSION}.png` });
+      setScreenshotState("ready");
+    } catch (error) {
+      console.error("Ending screenshot generation failed", error);
       setScreenshotState("error");
     }
   }
@@ -3578,7 +3841,7 @@ export default function Home() {
             {seasons.map((seasonName, index) => <span key={seasonName} className={game.phase === "season" && game.season === index ? "active" : game.phase === "summary" || game.phase === "ending" || (game.phase === "season" && game.season > index) ? "done" : ""}>{seasonName}季</span>)}
           </nav>
 
-          {game.phase === "ending" || game.gauges.health <= 0 ? <article className="event-card ending-card" ref={endingCardRef}>
+          {game.phase === "ending" || game.gauges.health <= 0 ? <article className="event-card ending-card">
             <p className="eyebrow green">{game.gauges.health <= 0 ? `${game.age} 歲 · 健康歸零 · 提前結束` : financialEnding ? `${game.age} 歲 · 償債能力失守 · 提前結束` : `${FINAL_AGE} 歲 · 第一階段人生結算`}</p><h1>{ending[0]}</h1><p className="lede">{ending[1]}</p>
             <div className="ending-number"><span>最終淨資產</span><b>{formatMoney(netWorth(game))}</b></div>
             <WealthHistoryChart game={game} />
@@ -3607,10 +3870,10 @@ export default function Home() {
               </details>
             </section>
             <div className="ending-actions" data-screenshot-control>
-              <button className="ending-screenshot-button" type="button" disabled={screenshotState === "saving"} onClick={saveEndingScreenshot}><span>⇩</span><b>{screenshotState === "saving" ? "正在產生圖片…" : screenshotState === "saved" ? "已儲存，再截一次" : "儲存結算截圖"}</b><small>下載 PNG · 不包含操作按鈕</small></button>
+              <button className="ending-screenshot-button" type="button" disabled={screenshotState === "saving"} onClick={saveEndingScreenshot}><span>⇩</span><b>{screenshotState === "saving" ? "正在產生圖片…" : screenshotState === "saved" ? "已下載，再產生一次" : "產生結算圖片"}</b><small>固定尺寸 PNG · 預覽後下載</small></button>
               <button className="primary" onClick={resetGame}>再活一次 <span>↻</span></button>
             </div>
-            <p className={`ending-screenshot-status ${screenshotState}`} data-screenshot-control aria-live="polite">{screenshotState === "saved" ? "結算圖片已下載到你的裝置。" : screenshotState === "error" ? "圖片產生失敗，請再試一次。" : ""}</p>
+            <p className={`ending-screenshot-status ${screenshotState}`} data-screenshot-control aria-live="polite">{screenshotState === "ready" ? "結算圖片已完成，請在預覽視窗下載。" : screenshotState === "saved" ? "結算圖片已下載到你的裝置。" : screenshotState === "error" ? "圖片產生失敗，請再試一次。" : ""}</p>
           </article> : game.phase === "summary" && game.annualSummary ? <article className="event-card summary-card">
             <p className="eyebrow green">{game.age} 歲 · 年度財務結算</p><h1>市場收盤，<br/>人生繼續計息。</h1>
             <div className="summary-net"><span>年度淨資產變化</span><b className={game.annualSummary.endNet >= game.annualSummary.startNet ? "positive" : "negative"}>{game.annualSummary.endNet >= game.annualSummary.startNet ? "+" : "−"}{formatMoney(Math.abs(game.annualSummary.endNet - game.annualSummary.startNet)).replace("NT$ ", "")}</b></div>
@@ -3731,6 +3994,21 @@ export default function Home() {
             })}
           </div>
           <footer className="broker-footer"><span>畫面為模擬單位報價；交易仍依投入金額計算。買進手續費 0.1425%，賣出依商品別計入交易成本。</span><b>{game.specialTrait === "紙手體質" ? "紙手體質：賣出時只能全部清倉。" : "你可以在本季內反覆調整，按下結算才會推進時間。"}</b></footer>
+        </section>
+      </div>}
+      {screenshotPreview && <div className="ending-preview-overlay" role="presentation" onMouseDown={() => setScreenshotPreview(null)}>
+        <section className="ending-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="ending-preview-title" onMouseDown={(event) => event.stopPropagation()}>
+          <header><div><span>結算圖片已完成</span><h2 id="ending-preview-title">預覽後再下載</h2></div><button type="button" aria-label="關閉結算圖片預覽" onClick={() => setScreenshotPreview(null)}>×</button></header>
+          <div className="ending-preview-image">
+            {/* Blob 預覽不適用 Next Image 的最佳化流程。 */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={screenshotPreview.url} alt={`${game.name}的韭菜人生結算圖片預覽`} />
+          </div>
+          <p>固定為 1080 × 1920，不受結算頁長度影響；若手機沒有直接下載，也可以長按預覽圖片儲存。</p>
+          <div className="ending-preview-actions">
+            <button className="text-button" type="button" onClick={() => setScreenshotPreview(null)}>返回結算</button>
+            <a className="primary" href={screenshotPreview.url} download={screenshotPreview.filename} onClick={() => setScreenshotState("saved")}>下載 PNG <span>↓</span></a>
+          </div>
         </section>
       </div>}
       {historyOpen && <div className="decision-overlay history-overlay" role="presentation" onMouseDown={() => setHistoryOpen(false)}>

@@ -141,6 +141,19 @@ test('mobile wealth chart uses a full-width SVG coordinate system', () => {
   assert.match(css,/\.wealth-chart-scale\{[^}]*white-space:nowrap/);
   assert(!wealthChart.includes('Math.hypot'));
 });
+test('ending screenshot uses an origin-clean fixed canvas and explicit preview download', () => {
+  const screenshotRenderer = source.slice(source.indexOf('const ENDING_SHARE_WIDTH'), source.indexOf('const addKnowledge'));
+  assert.match(screenshotRenderer,/const ENDING_SHARE_WIDTH = 1080/);
+  assert.match(screenshotRenderer,/const ENDING_SHARE_HEIGHT = 1920/);
+  assert.match(screenshotRenderer,/canvas\.width = ENDING_SHARE_WIDTH/);
+  assert.match(screenshotRenderer,/canvas\.height = ENDING_SHARE_HEIGHT/);
+  assert(!screenshotRenderer.includes('foreignObject'));
+  assert(!screenshotRenderer.includes('cloneNode'));
+  assert(!screenshotRenderer.includes('document.styleSheets'));
+  assert.match(source,/className="ending-preview-image"/);
+  assert.match(source,/href=\{screenshotPreview\.url\} download=\{screenshotPreview\.filename\}/);
+  assert(!source.includes('setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)'));
+});
 test('mobile role profile uses a compact summary trigger and dismissible bottom sheet', () => {
   const mobileSheetCss = css.slice(css.indexOf('/* 手機角色資料冊頁'));
   assert.match(source, /const \[mobileProfileOpen, setMobileProfileOpen\] = useState\(false\)/);
