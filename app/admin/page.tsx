@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { isAnalyticsAdmin } from "@/lib/admin-auth";
-import { readAnalyticsReport, readMetric, type MetricRow } from "@/lib/analytics-report";
+import { readAnalyticsReport, readCompletedRunMetric, readMetric, type MetricRow } from "@/lib/analytics-report";
 import { metricDimensionLabel, type LocalizedMetric } from "@/lib/analytics-metric-labels";
 import { runPositionLabel, runStatusLabel as statusLabel, runTimeLabel } from "@/lib/analytics-run-format";
 import ExportRunsButton from "./export-runs-button";
@@ -17,10 +17,10 @@ const money = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
 const formatMoney = (value: number) => `${value < 0 ? "−" : ""}NT$ ${money.format(Math.abs(Math.round(value)))}`;
 const percentage = (value: number, total: number) => total ? `${(value / total * 100).toFixed(1)}%` : "0.0%";
 
-function MetricList({ title, rows, metric, empty = "尚無資料" }: { title: string; rows: MetricRow[]; metric?: LocalizedMetric; empty?: string }) {
+function MetricList({ title, rows, metric, empty = "尚無資料", completedOnly = false }: { title: string; rows: MetricRow[]; metric?: LocalizedMetric; empty?: string; completedOnly?: boolean }) {
   const highest = Math.max(1, ...rows.map((row) => row.count));
   return <section className={`analytics-panel analytics-ranking${metric ? " analytics-localized" : ""}`}>
-    <header><h2>{title}</h2><span>近 180 天</span></header>
+    <header><h2>{title}</h2><span>{completedOnly ? "僅完成局 · 近 180 天" : "近 180 天"}</span></header>
     {rows.length ? <ol>{rows.map((row) => <li key={row.dimension}>
       <div><b>{metricDimensionLabel(metric, row.dimension)}</b><span>{money.format(row.count)} 次</span></div>
       <i><em style={{ width: `${Math.max(3, row.count / highest * 100)}%` }} /></i>
@@ -33,14 +33,14 @@ export default async function AnalyticsAdminPage() {
   if (!await isAnalyticsAdmin(requestHeaders)) redirect("/admin/login");
   const { db, summary, daily, recentRuns } = await readAnalyticsReport();
   const [eventChoices, incomeChoices, trades, endings, achievements, illnessChoices, familyChoices, surprises] = await Promise.all([
-    readMetric(db, "event_choices", 6),
-    readMetric(db, "income_choices", 6),
-    readMetric(db, "trades", 10),
+    readCompletedRunMetric(db, "event_choices", 6),
+    readCompletedRunMetric(db, "income_choices", 6),
+    readCompletedRunMetric(db, "trades", 10),
     readMetric(db, "endings", 10),
     readMetric(db, "achievements", 10),
-    readMetric(db, "illness_choices", 10),
-    readMetric(db, "family_choices", 6),
-    readMetric(db, "surprises", 10),
+    readCompletedRunMetric(db, "illness_choices", 10),
+    readCompletedRunMetric(db, "family_choices", 6),
+    readCompletedRunMetric(db, "surprises", 10),
   ]);
   const dailyPeak = Math.max(1, ...daily.map((day) => Math.max(day.started, day.completed, day.abandoned)));
 
@@ -70,14 +70,14 @@ export default async function AnalyticsAdminPage() {
     </section>
 
     <section className="analytics-grid">
-      <MetricList title="事件 A／B／C 選擇" rows={eventChoices} />
-      <MetricList title="年度生路選擇" rows={incomeChoices} metric="income_choices" />
-      <MetricList title="最常交易的標的" rows={trades} />
-      <MetricList title="遊戲結局" rows={endings} />
-      <MetricList title="成就達成" rows={achievements} metric="achievements" />
-      <MetricList title="生病事件選擇" rows={illnessChoices} metric="illness_choices" />
-      <MetricList title="家庭事件選擇" rows={familyChoices} metric="family_choices" />
-      <MetricList title="季度突襲反應" rows={surprises} />
+      <MetricList title="事件 A／B／C 選擇" rows={eventChoices} completedOnly />
+      <MetricList title="年度生路選擇" rows={incomeChoices} metric="income_choices" completedOnly />
+      <MetricList title="最常交易的標的" rows={trades} completedOnly />
+      <MetricList title="遊戲結局" rows={endings} completedOnly />
+      <MetricList title="成就達成" rows={achievements} metric="achievements" completedOnly />
+      <MetricList title="生病事件選擇" rows={illnessChoices} metric="illness_choices" completedOnly />
+      <MetricList title="家庭事件選擇" rows={familyChoices} metric="family_choices" completedOnly />
+      <MetricList title="季度突襲反應" rows={surprises} completedOnly />
     </section>
 
     <section className="analytics-panel analytics-runs">

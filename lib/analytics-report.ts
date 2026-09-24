@@ -33,6 +33,35 @@ export type RecentRun = {
 
 const numberValue = (value: unknown) => typeof value === "number" ? value : Number(value ?? 0) || 0;
 
+type CompletedRunMetricName = "event_choices" | "income_choices" | "trades" | "illness_choices" | "family_choices" | "surprises";
+
+const completedRunMetricDefinitions: Record<CompletedRunMetricName, { eventType: string; dimensionSql: string }> = {
+  event_choices: {
+    eventType: "event_choice",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.choice'), 1, 72), ''), 'all')",
+  },
+  income_choices: {
+    eventType: "income_choice",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.incomePath'), 1, 72), ''), 'all')",
+  },
+  trades: {
+    eventType: "trade",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.side'), 1, 72), ''), 'all') || ':' || COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.target'), 1, 72), ''), 'unknown')",
+  },
+  illness_choices: {
+    eventType: "illness_event",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.severity'), 1, 72), ''), 'all') || ':' || COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.choice'), 1, 72), ''), 'all')",
+  },
+  family_choices: {
+    eventType: "family_event",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.choice'), 1, 72), ''), 'all')",
+  },
+  surprises: {
+    eventType: "surprise_resolved",
+    dimensionSql: "COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.direction'), 1, 72), ''), 'all') || ':' || COALESCE(NULLIF(SUBSTR(json_extract(event.data_json, '$.action'), 1, 72), ''), 'all')",
+  },
+};
+
 export async function readAnalyticsReport() {
   const db = analyticsDb();
   await ensureAnalyticsSchema(db);
@@ -105,6 +134,24 @@ export async function readMetric(db: D1Database, metricName: string, limit = 10)
     GROUP BY dimension
     ORDER BY count DESC, dimension ASC
     LIMIT ?`).bind(metricName, limit).all<Record<string, unknown>>();
+  return (result.results ?? []).map((row): MetricRow => ({
+    dimension: String(row.dimension ?? "all"),
+    count: numberValue(row.count),
+    total: numberValue(row.total),
+  }));
+}
+
+export async function readCompletedRunMetric(db: D1Database, metricName: CompletedRunMetricName, limit = 10) {
+  const definition = completedRunMetricDefinitions[metricName];
+  const result = await db.prepare(`SELECT ${definition.dimensionSql} AS dimension, COUNT(*) AS count, 0 AS total
+    FROM anonymous_events AS event
+    INNER JOIN anonymous_runs AS run ON run.id = event.run_id
+    WHERE run.status = 'completed'
+      AND event.event_type = ?
+      AND event.created_at >= datetime('now', '-180 days')
+    GROUP BY dimension
+    ORDER BY count DESC, dimension ASC
+    LIMIT ?`).bind(definition.eventType, limit).all<Record<string, unknown>>();
   return (result.results ?? []).map((row): MetricRow => ({
     dimension: String(row.dimension ?? "all"),
     count: numberValue(row.count),
