@@ -180,6 +180,7 @@ type AchievementResult = {
   description: string;
   progress: string;
   unlocked: boolean;
+  hidden?: boolean;
 };
 type WealthSnapshot = { age: number; netWorth: number };
 
@@ -263,7 +264,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.3";
+const GAME_VERSION = "v1.1.4";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -861,14 +862,15 @@ async function endingCardPng(game: Game, achievements: AchievementResult[]) {
   drawStat("負債", formatMoney(game.debt), 544, 1334, statWidth, game.debt > 0 ? palette.red : palette.ink);
   drawStat("知識／健康／壓力", `${game.gauges.knowledge}／${game.gauges.health}／${game.gauges.stress}`, 768, 1334, 216);
 
-  const unlocked = achievements.filter((achievement) => achievement.unlocked);
+  const visibleAchievements = achievementsVisibleAtEnding(achievements);
+  const unlocked = visibleAchievements.filter((achievement) => achievement.unlocked);
   context.textAlign = "left";
   context.fillStyle = palette.muted;
   context.font = `800 20px ${ENDING_SHARE_FONT}`;
   context.fillText("本局解鎖成就", 64, 1555);
   context.fillStyle = palette.ink;
   context.font = `900 34px ${ENDING_SHARE_FONT}`;
-  context.fillText(`${unlocked.length}／${achievements.length}`, 64, 1598);
+  context.fillText(`${unlocked.length}／${visibleAchievements.length}`, 64, 1598);
   context.fillStyle = palette.muted;
   const achievementSummary = unlocked.length
     ? `傷疤已成功鑄成徽章${unlocked.length > 6 ? ` · 另有 ${unlocked.length - 6} 項` : ""}`
@@ -876,9 +878,9 @@ async function endingCardPng(game: Game, achievements: AchievementResult[]) {
   fittedCanvasFont(context, achievementSummary, 800, 19, 15, 650);
   context.fillText(achievementSummary, 184, 1595);
   const tierColors: Record<AchievementResult["tier"], string> = { 傳說: palette.gold, 史詩: "#d59cff", 稀有: palette.green, 一般: palette.lime };
-  const visibleAchievements = unlocked.slice(0, 6);
-  if (visibleAchievements.length) {
-    visibleAchievements.forEach((achievement, index) => {
+  const visibleAchievementCards = unlocked.slice(0, 6);
+  if (visibleAchievementCards.length) {
+    visibleAchievementCards.forEach((achievement, index) => {
       const column = index % 2;
       const row = Math.floor(index / 2);
       const x = 64 + column * 484;
@@ -1200,6 +1202,7 @@ const achievementsFor = (game: Game): AchievementResult[] => {
   const retirementDistance = Math.max(0, EARLY_RETIREMENT_TARGET - retirementProgress);
   return [
     { id: "earlyRetirement", title: "提前退休", tier: "傳說", description: "31歲時，可投資淨資產達3,000萬元，並扣除全部負債。", progress: `${game.age31InvestableNet === null ? "目前" : "31歲紀錄"} ${formatMoney(retirementProgress)}${retirementDistance > 0 ? ` · 還差 ${formatMoney(retirementDistance)}` : " · 已達標"}`, unlocked: game.earlyRetirementQualified },
+    { id: "hundredMillionMystery", title: "你是谷癌？", tier: "傳說", description: "最終淨資產突破一億元。", progress: `最終淨資產 ${formatMoney(net)}`, unlocked: completedRun && net > 100000000, hidden: true },
     { id: "retirementWaitingRoom", title: "退休預備席", tier: "史詩", description: "活到31歲，最終淨資產達2,000萬元。", progress: `目前 ${formatMoney(net)}／目標 ${formatMoney(20000000)}`, unlocked: completedRun && net >= 20000000 },
     { id: "marketLegend", title: "市場傳奇", tier: "傳說", description: "活到31歲，最終淨資產達1,000萬元。", progress: `目前 ${formatMoney(net)}／目標 ${formatMoney(10000000)}`, unlocked: completedRun && net >= 10000000 },
     { id: "fiveMillionClub", title: "五百萬俱樂部", tier: "稀有", description: "活到31歲，最終淨資產達500萬元。", progress: `目前 ${formatMoney(net)}／目標 ${formatMoney(5000000)}`, unlocked: completedRun && net >= 5000000 },
@@ -1223,6 +1226,7 @@ const achievementsFor = (game: Game): AchievementResult[] => {
     { id: "diversified", title: "資產動物園", tier: "一般", description: "曾同時持有至少10筆資產，且涵蓋台股、ETF、美股與加密貨幣。", progress: stats.diversifiedPeak ? "四類資產與10筆持倉均已達成" : `最高持倉 ${stats.maxAssetRows}／10 筆`, unlocked: completedRun && stats.diversifiedPeak },
   ];
 };
+const achievementsVisibleAtEnding = (achievements: AchievementResult[]) => achievements.filter((achievement) => !achievement.hidden || achievement.unlocked);
 const riskLabel = (risk: Choice["risk"]) => risk === "safe" ? "低" : risk === "steady" ? "中" : "高";
 const choiceMoneyHint = (game: Game, choice: Choice) => {
   if (choice.action === "invest") {
@@ -3703,6 +3707,7 @@ export default function Home() {
   const gaugeRows: [string, GaugeKey][] = [["健康", "health"], ["壓力", "stress"], ["家庭關係", "family"], ["投資知識", "knowledge"], ["信用", "credit"]];
   const ending = titleForEnding(game);
   const achievementResults = achievementsFor(game);
+  const visibleAchievementResults = achievementsVisibleAtEnding(achievementResults);
   const unlockedAchievementResults = achievementResults.filter((achievement) => achievement.unlocked);
   const endingStats = game.achievementStats ?? blankAchievementStats();
   const financialEnding = game.phase === "ending" && game.gauges.health > 0 && game.age < FINAL_AGE && netWorth(game) <= FINANCIAL_FAILURE_NET_WORTH;
@@ -3858,14 +3863,14 @@ export default function Home() {
               </dl>
             </section>}
             <section className="achievement-section" aria-labelledby="achievement-title">
-              <div className="achievement-heading"><div><span>本局成就</span><h2 id="achievement-title">解鎖 {unlockedAchievementResults.length}／{achievementResults.length}</h2></div><b>{unlockedAchievementResults.length ? "你的傷疤已成功鑄成徽章。" : "這局先留下經驗，徽章下次再拿。"}</b></div>
+              <div className="achievement-heading"><div><span>本局成就</span><h2 id="achievement-title">解鎖 {unlockedAchievementResults.length}／{visibleAchievementResults.length}</h2></div><b>{unlockedAchievementResults.length ? "你的傷疤已成功鑄成徽章。" : "這局先留下經驗，徽章下次再拿。"}</b></div>
               {unlockedAchievementResults.length > 0 && <div className="achievement-unlocked-list">
                 {unlockedAchievementResults.map((achievement) => <article className={`achievement-card unlocked tier-${achievement.tier}`} key={achievement.id}><div><span>✓ 已解鎖</span><em>{achievement.tier}</em></div><h3>{achievement.title}</h3><p>{achievement.description}</p><small>{achievement.progress}</small></article>)}
               </div>}
               <details className="achievement-catalog">
                 <summary>查看全部成就與本局進度 <span>＋</span></summary>
                 <div className="achievement-grid">
-                  {achievementResults.map((achievement) => <article className={`achievement-card ${achievement.unlocked ? "unlocked" : "locked"} tier-${achievement.tier}`} key={achievement.id}><div><span>{achievement.unlocked ? "✓ 已解鎖" : "○ 未解鎖"}</span><em>{achievement.tier}</em></div><h3>{achievement.title}</h3><p>{achievement.description}</p><small>{achievement.progress}</small></article>)}
+                  {visibleAchievementResults.map((achievement) => <article className={`achievement-card ${achievement.unlocked ? "unlocked" : "locked"} tier-${achievement.tier}`} key={achievement.id}><div><span>{achievement.unlocked ? "✓ 已解鎖" : "○ 未解鎖"}</span><em>{achievement.tier}</em></div><h3>{achievement.title}</h3><p>{achievement.description}</p><small>{achievement.progress}</small></article>)}
                 </div>
               </details>
             </section>

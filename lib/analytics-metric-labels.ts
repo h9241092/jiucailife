@@ -9,6 +9,7 @@ const incomeLabels: Readonly<Record<string, string>> = {
 
 const achievementLabels: Readonly<Record<string, string>> = {
   earlyRetirement: "提前退休",
+  hundredMillionMystery: "你是谷癌？",
   retirementWaitingRoom: "退休預備席",
   marketLegend: "市場傳奇",
   fiveMillionClub: "五百萬俱樂部",

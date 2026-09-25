@@ -89,6 +89,7 @@ const INTEL_EFFECTS = {
 
 const ACHIEVEMENTS = [
   ["earlyRetirement", "提前退休"],
+  ["hundredMillionMystery", "你是谷癌？"],
   ["retirementWaitingRoom", "退休預備席"],
   ["marketLegend", "市場傳奇"],
   ["fiveMillionClub", "五百萬俱樂部"],
@@ -965,6 +966,7 @@ function unlockedAchievements(game) {
   const completed = game.completed && game.health > 0 && net > FAILURE_NET;
   const unlocked = new Set();
   if (completed && net >= RETIREMENT_NET) unlocked.add("earlyRetirement");
+  if (completed && net > 100000000) unlocked.add("hundredMillionMystery");
   if (completed && net >= 20000000) unlocked.add("retirementWaitingRoom");
   if (completed && net >= 10000000) unlocked.add("marketLegend");
   if (completed && net >= 5000000) unlocked.add("fiveMillionClub");

@@ -8,6 +8,7 @@ import ts from 'typescript';
 const source = fs.readFileSync('app/page.tsx', 'utf8');
 const css = fs.readFileSync('app/globals.css', 'utf8');
 const wiki = fs.readFileSync('WIKI.md', 'utf8');
+const readme = fs.readFileSync('README.md', 'utf8');
 const approximateSimulator = fs.readFileSync('scripts/simulate-full-life.mjs', 'utf8');
 const currentSimulator = fs.readFileSync('scripts/simulate-current-game.mjs', 'utf8');
 const simulationRunner = fs.readFileSync('scripts/run-current-simulation.mjs', 'utf8');
@@ -19,7 +20,7 @@ const home = parsed.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.
 const handler = home.body.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'chooseIncomePath').getText(parsed);
 const prefix = source.slice(0, home.getStart(parsed));
 const moduleSource = `${prefix}
-export { makeGame, familySupportAmount, familySupportChance, achievementsFor, lifeChoicesForEvent, traits, GAME_VERSION };
+export { makeGame, familySupportAmount, familySupportChance, achievementsFor, achievementsVisibleAtEnding, lifeChoicesForEvent, traits, GAME_VERSION };
 export function runIncome(initial, path, suppliedRolls) {
   const game = initial;
   const rolls = [...suppliedRolls];
@@ -46,14 +47,14 @@ function compile(text, dependencies) {
 const catalog = compile(fs.readFileSync('app/event-catalog.ts', 'utf8'), {});
 const gameApi = compile(moduleSource, { './event-catalog': catalog, 'react/jsx-runtime': { jsx:()=>null, jsxs:()=>null } });
 function initial(overrides = {}) {
-  const game = gameApi.makeGame('', 'RELEASE113');
+  const game = gameApi.makeGame('', 'RELEASE114');
   return { ...game, trait:'數字敏感', cash:300000, gauges:{ health:80,stress:20,family:60,knowledge:20,credit:65 }, ...overrides };
 }
 
-test('v1.1.3 is consistent across the game, package and Wiki', () => {
-  assert.equal(gameApi.GAME_VERSION, 'v1.1.3');
-  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.3');
-  assert.match(wiki, /適用版本：`v1\.1\.3`/);
+test('v1.1.4 is consistent across the game, package and Wiki', () => {
+  assert.equal(gameApi.GAME_VERSION, 'v1.1.4');
+  assert.equal(JSON.parse(fs.readFileSync('package.json','utf8')).version, '1.1.4');
+  assert.match(wiki, /適用版本：`v1\.1\.4`/);
 });
 test('retired property and mortgage mechanics stay removed without changing credit or family loans', () => {
   const retiredMechanics = [
@@ -125,6 +126,30 @@ test('paper hands diamond requires surviving to 31 with strictly more than 15000
   assert.equal(gameApi.achievementsFor(initial({age:30,specialTrait:'紙手體質',cash:20000000,debt:0,assets:[]})).find(item => item.id === 'paperHandsDiamond').unlocked,false);
   assert.equal(gameApi.achievementsFor(initial({age:31,specialTrait:null,cash:20000000,debt:0,assets:[]})).find(item => item.id === 'paperHandsDiamond').unlocked,false);
 });
+test('the hidden achievement requires strictly more than 100000000 and stays undisclosed until unlocked', () => {
+  const resultsAt = cash => gameApi.achievementsFor(initial({age:31,cash,debt:0,assets:[]}));
+  const atBoundary = resultsAt(100000000);
+  const aboveBoundary = resultsAt(100000001);
+  const locked = atBoundary.find(item => item.id === 'hundredMillionMystery');
+  const unlocked = aboveBoundary.find(item => item.id === 'hundredMillionMystery');
+  assert.equal(locked.unlocked,false);
+  assert.equal(locked.hidden,true);
+  assert.equal(unlocked.unlocked,true);
+  assert.equal(unlocked.title,'你是谷癌？');
+  assert.equal(unlocked.tier,'傳說');
+  assert(!gameApi.achievementsVisibleAtEnding(atBoundary).some(item => item.id === 'hundredMillionMystery'));
+  assert(gameApi.achievementsVisibleAtEnding(aboveBoundary).some(item => item.id === 'hundredMillionMystery'));
+  assert.equal(gameApi.achievementsVisibleAtEnding(atBoundary).length,22);
+  assert.equal(gameApi.achievementsVisibleAtEnding(aboveBoundary).length,23);
+  assert.match(source,/const visibleAchievements = achievementsVisibleAtEnding\(achievements\)/);
+  assert.match(source,/const visibleAchievementResults = achievementsVisibleAtEnding\(achievementResults\)/);
+  assert.match(source,/visibleAchievementResults\.map\(\(achievement\)/);
+  assert(!wiki.includes('你是谷癌？'));
+  assert(!readme.includes('你是谷癌？'));
+  const releaseNotes = readme.slice(readme.indexOf('## v1.1.4'), readme.indexOf('## v1.1.3'));
+  assert.match(releaseNotes,/新增隱藏成就/);
+  assert(!releaseNotes.includes('100,000,000'));
+});
 test('late confirmation lens uses A +9, B +8 and C +4 percentage points', () => {
   const event = catalog.buildLifeEventDeck(106,20).find(item => item.lensIndex === 3);
   assert(event);
@@ -165,7 +190,7 @@ test('mobile role profile uses a compact summary trigger and dismissible bottom 
   assert.match(mobileSheetCss, /max-height:min\(88dvh,760px\)/);
   assert.match(mobileSheetCss, /env\(safe-area-inset-bottom,0px\)/);
 });
-test('v1.1.3 balance figures stay synchronized across game, simulator and Wiki', () => {
+test('v1.1.4 balance figures stay synchronized across game, simulator and Wiki', () => {
   const optimistic = gameApi.traits.find(([name]) => name === '天生樂觀')[2];
   const frail = gameApi.traits.find(([name]) => name === '體弱多病')[2];
   const brokenFamily = gameApi.traits.find(([name]) => name === '家破人亡')[2];
@@ -199,11 +224,11 @@ test('everyone becomes an expert pays 1.75 times trend income in game and simula
   assert.equal(trendChoice.intelEffects.cash,Math.round(baseCash * 1.75));
   assert.match(approximateSimulator,/event\.lensEffect\.trendCashMultiplier/);
 });
-test('Wiki includes existing v1.1.3 figures and event effects', () => {
+test('Wiki includes existing v1.1.4 figures and event effects', () => {
   for(const expected of ['0～100,000','210,000～330,000','500,000','180,000','家庭關係 **−5**','四種事件角度','×1.25','×0.75','紙手變鑽石手','15,000,000','A 查證 +9%','B 觀察 +8%','C 跟上流量 +4%']) assert(wiki.includes(expected),expected);
   assert(!wiki.includes('0～60,000'));assert(!wiki.includes('NT$ 120,000'));
 });
-test('career event prices and penalties stay synchronized in v1.1.3', () => {
+test('career event prices and penalties stay synchronized in v1.1.4', () => {
   assert.match(source, /reputation >= 80 \? 300000 : reputation >= 50 \? 160000 : 100000/);
   assert.match(source, /堅稱只是長期布局，繼續喊/);
   assert.match(source, /投資知識 −3/);
@@ -218,7 +243,7 @@ test('retired position trade dialog and styles stay removed', () => {
     assert(!css.includes(retired), retired);
   }
 });
-test('local simulation and event export tools follow the current v1.1.3 rules', () => {
+test('local simulation and event export tools follow the current v1.1.4 rules', () => {
   for (const sourceText of [currentSimulator, simulationRunner]) assert(!sourceText.includes('QA104'));
   for (const sourceText of [directionExporter, titleExporter]) assert(!sourceText.includes('v1.0.3'));
   assert.match(approximateSimulator, /FAMILY_BACKER_ANNUAL_SUPPORT = 500000/);
