@@ -2271,7 +2271,6 @@ export default function Home() {
       const knowledgeGain = addKnowledge(next.gauges, outcome === "bad" ? 5 : 2);
       next.gauges.stress = clamp(next.gauges.stress + (outcome === "bad" ? 12 : outcome === "good" ? -3 : 3));
       next.gauges.health = clamp(next.gauges.health - (outcome === "bad" ? 2 : 0));
-      if (outcome === "bad" && leveraged) next.gauges.credit = clamp(next.gauges.credit - 3);
       const profit = value - exposure;
       const probability = Math.round(goodChance * 100);
       resolution = {
