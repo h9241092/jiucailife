@@ -120,12 +120,16 @@ type AnnualSummary = {
   generalInterestPaid: number;
   interestCapitalized: number;
   liquidityDebtAdded: number;
+  bookkeepingCreditBonus: number;
+  bookkeepingDebtStress: number;
+  nextLivingCost: number;
 };
 
 type BorrowTier = "small" | "medium" | "large";
 type DebtAction = "borrow" | "repay" | "creditBorrow" | "interest";
 type DebtNotice = { tone: "good" | "bad"; title: string; body: string };
 type IncomePath = "kol" | "family" | "parttime";
+type SpecialTrait = "紙手體質" | "工作狂" | "記帳強迫症";
 type IncomeNotice = { tone: "good" | "flat" | "bad"; title: string; body: string; deltas: string[] };
 type FamilyEvent = { id: string; title: string; body: string; quote: string };
 type FamilyEventChoice = "time" | "money" | "decline";
@@ -197,7 +201,7 @@ type Game = {
   occupation: string;
   trait: string;
   traitEffect: string;
-  specialTrait: string | null;
+  specialTrait: SpecialTrait | null;
   specialTraitEffect: string | null;
   cash: number;
   debt: number;
@@ -227,6 +231,7 @@ type Game = {
   assets: Position[];
   result: Resolution | null;
   annualStartNet: number;
+  annualDebtAdded: number;
   annualMarketMove: number;
   quarterMarketMove: number;
   annualSummary: AnnualSummary | null;
@@ -264,7 +269,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.4";
+const GAME_VERSION = "v1.1.5";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -1008,6 +1013,9 @@ const FIRST_YEAR_KOL_GOOD_CHANCE = .12;
 const FIRST_YEAR_KOL_FLAT_CHANCE = .18;
 const KOL_FLAT_CHANCE = .25;
 const KOL_MAX_ANNUAL_INCOME = 1560000;
+const WORKAHOLIC_KOL_MAX_ANNUAL_INCOME = 1800000;
+const WORKAHOLIC_ANNUAL_INCOME_MULTIPLIER = 1.08;
+const WORKAHOLIC_CAREER_EVENT_MULTIPLIER = 1.15;
 const KOL_GOOD_VARIABLE_INCOME = 535000;
 const KNOWLEDGE_CLEAR_SIGNAL_LEVEL = 63;
 const KNOWLEDGE_CONFIDENCE_LEVEL = 75;
@@ -1027,6 +1035,15 @@ const outsideWorkIncome = (streak: number) => streak < WORK_RAISE_STREAK
   ? OUTSIDE_WORK_ANNUAL_INCOME
   : Math.round(EXPERIENCED_WORK_BASE_INCOME * Math.pow(1 + ANNUAL_WORK_RAISE_RATE, streak - WORK_RAISE_STREAK) / 1000) * 1000;
 const rankedWorkIncome = (streak: number, promoted: boolean) => Math.round(outsideWorkIncome(streak) * (promoted ? 1.18 : 1) / 1000) * 1000;
+const annualCareerIncome = (amount: number, specialTrait: SpecialTrait | null) => Math.round(
+  amount * (specialTrait === "工作狂" ? WORKAHOLIC_ANNUAL_INCOME_MULTIPLIER : 1) / 1000,
+) * 1000;
+const careerEventIncome = (amount: number, specialTrait: SpecialTrait | null) => Math.round(
+  amount * (specialTrait === "工作狂" ? WORKAHOLIC_CAREER_EVENT_MULTIPLIER : 1) / 1000,
+) * 1000;
+const kolAnnualIncomeCap = (specialTrait: SpecialTrait | null) => specialTrait === "工作狂"
+  ? WORKAHOLIC_KOL_MAX_ANNUAL_INCOME
+  : KOL_MAX_ANNUAL_INCOME;
 const workHealthCost = (consecutiveYears: number) => 5 + Math.max(0, consecutiveYears - 2);
 const LEARNING_COST = 5000;
 const INTEL_RESEARCH_COST = 1000;
@@ -1141,13 +1158,14 @@ const chooseQuarterCareerEvent = (game: Game): CareerEventDefinition | null => {
 };
 const careerEventOptionsFor = (game: Game, event: CareerEventDefinition) => {
   const workBase = annualWorkBaseIncome(game);
-  const sponsorshipFee = kolSponsorshipFee(game.kolReputation);
+  const sponsorshipFee = careerEventIncome(kolSponsorshipFee(game.kolReputation), game.specialTrait);
+  const eventIncome = (amount: number) => careerEventIncome(amount, game.specialTrait);
   if (event.id === "mcd_overtime") return [
-    { choice: "A" as const, label: "留下來加班", desc: `本年收入 +${formatMoney(careerSalaryBonus(workBase, .12))}、健康 −1、壓力 +3；本季兩則新聞都看不到，但仍能交易。` },
+    { choice: "A" as const, label: "留下來加班", desc: `本年收入 +${formatMoney(eventIncome(careerSalaryBonus(workBase, .12)))}、健康 −1、壓力 +3；本季兩則新聞都看不到，但仍能交易。` },
     { choice: "B" as const, label: "準時下班看盤", desc: "收入不變；本季兩則新聞與交易照常。" },
   ];
   if (event.id === "mcd_coworker_leave") return [
-    { choice: "A" as const, label: "接下這次代班", desc: `本年收入 +${formatMoney(careerSalaryBonus(workBase, .06))}、健康 −1、壓力 +2；下一則新聞看不到，但仍能交易。` },
+    { choice: "A" as const, label: "接下這次代班", desc: `本年收入 +${formatMoney(eventIncome(careerSalaryBonus(workBase, .06)))}、健康 −1、壓力 +2；下一則新聞看不到，但仍能交易。` },
     { choice: "B" as const, label: "婉拒代班", desc: "收入不變、壓力 −1；本季兩則新聞照常。" },
   ];
   if (event.id === "mcd_promotion") return [
@@ -1159,12 +1177,12 @@ const careerEventOptionsFor = (game: Game, event: CareerEventDefinition) => {
     { choice: "B" as const, label: "先查證再合作", desc: `現金 +${formatMoney(Math.round(sponsorshipFee * .6))}、知識 +2、信用 +2、健康 −1、壓力 +2；下一則新聞看不到。` },
   ];
   if (event.id === "kol_viral_video") return [
-    { choice: "A" as const, label: "熬夜追更", desc: "現金 +100,000、聲量 +8、健康 −3、壓力 +6；下一則新聞看不到。" },
-    { choice: "B" as const, label: "照原排程更新", desc: "現金 +30,000、聲量 +3、健康 +1、壓力 −2；兩則新聞照常。" },
+    { choice: "A" as const, label: "熬夜追更", desc: `現金 +${formatMoney(eventIncome(100000)).replace("NT$ ", "")}、聲量 +8、健康 −3、壓力 +6；下一則新聞看不到。` },
+    { choice: "B" as const, label: "照原排程更新", desc: `現金 +${formatMoney(eventIncome(30000)).replace("NT$ ", "")}、聲量 +3、健康 +1、壓力 −2；兩則新聞照常。` },
   ];
   if (event.id === "kol_asset_crash") return [
     { choice: "A" as const, label: "公開道歉並檢討", desc: "聲量 −10、信用 +4、知識 +2、壓力 +3。" },
-    { choice: "B" as const, label: "堅稱只是長期布局，繼續喊", desc: "現金 +60,000、聲量 +5、信用 −6、知識 −3、壓力 +7；公開喊單次數再 +1。" },
+    { choice: "B" as const, label: "堅稱只是長期布局，繼續喊", desc: `現金 +${formatMoney(eventIncome(60000)).replace("NT$ ", "")}、聲量 +5、信用 −6、知識 −3、壓力 +7；公開喊單次數再 +1。` },
   ];
   return [
     { choice: "A" as const, label: "配合調查並下架影片", desc: "支出 100,000、聲量 −8、信用 +2、壓力 +4；接下來兩季不能看情報或交易。" },
@@ -1192,7 +1210,9 @@ const FAMILY_BACKER_ANNUAL_SUPPORT = 500000;
 const familySupportAmount = (game: Pick<Game, "trait" | "gauges">) => game.trait === "家族靠山"
   ? FAMILY_BACKER_ANNUAL_SUPPORT
   : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
-const annualLivingCost = (year: number) => Math.round(240000 * Math.pow(1.02, year - 1) / 1000) * 1000;
+const annualLivingCost = (year: number, specialTrait: SpecialTrait | null = null) => Math.round(
+  288000 * Math.pow(1.02, year - 1) * (specialTrait === "記帳強迫症" ? .92 : 1) / 1000,
+) * 1000;
 const achievementsFor = (game: Game): AchievementResult[] => {
   const stats = game.achievementStats ?? blankAchievementStats();
   const net = netWorth(game);
@@ -1609,8 +1629,17 @@ const traits = [
   ["體弱多病", "初始健康只有 56～64，市場以外也有風險", { healthRange: [56, 64] }],
   ["家破人亡", "初始家庭關係只有 30～46，家裡未必接得住你", { familyRange: [30, 46] }],
 ] as const;
-const PAPER_HANDS_CHANCE_DENOMINATOR = 6;
 const PAPER_HANDS_EFFECT = "不影響初始能力，但自主減倉時只能全部清倉";
+const WORKAHOLIC_EFFECT = "投資KOL與麥當當年度收入 +8%，職業事件收入 +15%；有工作時健康額外 −1、壓力 +2，KOL 年收入上限提高至 180 萬元";
+const BOOKKEEPER_EFFECT = "固定生活支出 −8%；持有負債時年末壓力 +2，全年未新增借款時年末信用 +1";
+const specialTraitSlots: readonly (SpecialTrait | null)[] = ["紙手體質", "工作狂", "記帳強迫症", null, null, null];
+const specialTraitEffect = (trait: SpecialTrait | null) => trait === "紙手體質"
+  ? PAPER_HANDS_EFFECT
+  : trait === "工作狂"
+    ? WORKAHOLIC_EFFECT
+    : trait === "記帳強迫症"
+      ? BOOKKEEPER_EFFECT
+      : null;
 
 const initialGaugeRanges: Record<GaugeKey, readonly [number, number]> = {
   health: [70, 86],
@@ -1638,7 +1667,7 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
   const seedCode = normalizedSeedCode(requestedSeed);
   const seed = signalHash(`chive-life:${seedCode}`);
   const trait = traits[signalHash(`${seedCode}:trait`) % traits.length];
-  const hasPaperHands = signalHash(`${seedCode}:special:paper-hands`) % PAPER_HANDS_CHANCE_DENOMINATOR === 0;
+  const specialTrait = specialTraitSlots[signalHash(`${seedCode}:special:paper-hands`) % specialTraitSlots.length];
   const chosenName = characterName.trim() || names[signalHash(`${seedCode}:name`) % names.length];
   const healthRange = "healthRange" in trait[2] ? trait[2].healthRange : initialGaugeRanges.health;
   const familyRange = "familyRange" in trait[2] ? trait[2].familyRange : initialGaugeRanges.family;
@@ -1659,11 +1688,11 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
   const startingCash = 300000 + (trait[0] === "家族靠山" ? FAMILY_BACKER_STARTING_CASH_BONUS : 0);
   return {
     age: STARTING_AGE, year: 1, seed, seedCode, phase: "season", season: 0, month: 0,
-    name: chosenName, background: "迷茫的大學畢業生", occupation: "無業", trait: trait[0], traitEffect: trait[1], specialTrait: hasPaperHands ? "紙手體質" : null, specialTraitEffect: hasPaperHands ? PAPER_HANDS_EFFECT : null,
+    name: chosenName, background: "迷茫的大學畢業生", occupation: "無業", trait: trait[0], traitEffect: trait[1], specialTrait, specialTraitEffect: specialTraitEffect(specialTrait),
     cash: startingCash, debt: 0, familyDebt: 0, lastFamilyBorrowYear: null, lastCreditBorrowYear: null, creditLoanMonthsRemaining: 0, lastIncomeChoiceYear: null, incomeSource: "尚未決定", lastYearMarketMove: 0,
     correctSignalStreak: 0, correctSignalUnclearCount: 0, maxCorrectSignalStreak: 0, breakoutOpportunities: 0, annualCorrectReads: 0, annualDirectionalReads: 0, lastYearReadAccuracy: null, kolReputation: 0,
     familySupportStreak: 0, parttimeStreak: 0, workConsecutiveYears: 0, workTenureProtected: false, workPromoted: false, workBaseIncomeThisYear: 0, income: 0, gauges, assets: [],
-    result: null, annualStartNet: startingCash, annualMarketMove: 0, quarterMarketMove: 0, annualSummary: null, wealthHistory: [{ age: STARTING_AGE, netWorth: startingCash }], history: [], surpriseSeen: [], familyEventSeen: [], illnessSeen: [], illnessCooldown: 0,
+    result: null, annualStartNet: startingCash, annualDebtAdded: 0, annualMarketMove: 0, quarterMarketMove: 0, annualSummary: null, wealthHistory: [{ age: STARTING_AGE, netWorth: startingCash }], history: [], surpriseSeen: [], familyEventSeen: [], illnessSeen: [], illnessCooldown: 0,
     activeSignals: [], intelRecords: [], marketQuotes: initialMarketQuotes(),
     age31InvestableNet: null, earlyRetirementQualified: false, achievementStats: blankAchievementStats(), eventOrder: freshEventOrder(),
     careerEventCounts: {}, careerEventStats: blankCareerEventStats(), lastCareerEventPeriod: null, hiddenNewsRemaining: 0,
@@ -2142,6 +2171,7 @@ export default function Home() {
       const financed = cost - paid;
       next.cash -= paid;
       next.debt += financed;
+      next.annualDebtAdded = (next.annualDebtAdded ?? 0) + financed;
       if (financed > 0) next.gauges.credit = clamp(next.gauges.credit - 1);
       const gain = addKnowledge(next.gauges, isIntelResearch ? intelEffects.knowledge : 7 + (choice.risk === "steady" ? 2 : 0));
       next.gauges.stress = clamp(next.gauges.stress + (isIntelResearch ? intelEffects.stress : 1));
@@ -2266,7 +2296,11 @@ export default function Home() {
       const finalReturn = applyAssetReturnLimits(choice.asset.category, rawFinalReturn);
       const value = Math.max(0, exposure * (1 + finalReturn));
       next.cash -= margin;
-      if (leveraged) next.debt += exposure - margin;
+      if (leveraged) {
+        const borrowed = exposure - margin;
+        next.debt += borrowed;
+        next.annualDebtAdded = (next.annualDebtAdded ?? 0) + borrowed;
+      }
       next.assets = addPosition(next.assets, { id: deterministicPositionId(next, "choice", choice.asset!.name), category: choice.asset!.category, name: choice.asset!.name, cost: exposure, value, loan: leveraged ? exposure - margin : 0 });
       const knowledgeGain = addKnowledge(next.gauges, outcome === "bad" ? 5 : 2);
       next.gauges.stress = clamp(next.gauges.stress + (outcome === "bad" ? 12 : outcome === "good" ? -3 : 3));
@@ -2855,6 +2889,7 @@ export default function Home() {
       const financed = fullCost - paid;
       next.cash -= paid;
       next.debt += financed;
+      next.annualDebtAdded = (next.annualDebtAdded ?? 0) + financed;
       next.gauges.health = clamp(next.gauges.health + effects.careHealth);
       next.gauges.stress = clamp(next.gauges.stress + effects.careStress);
       if (financed > 0) next.gauges.credit = clamp(next.gauges.credit - 2);
@@ -2873,6 +2908,7 @@ export default function Home() {
         const financed = playerCost - paid;
         next.cash -= paid;
         next.debt += financed;
+        next.annualDebtAdded = (next.annualDebtAdded ?? 0) + financed;
         next.gauges.health = clamp(next.gauges.health + effects.careHealth + 1);
         next.gauges.stress = clamp(next.gauges.stress - 4);
         next.gauges.family = clamp(next.gauges.family + 4);
@@ -2953,6 +2989,7 @@ export default function Home() {
       ...game,
       cash: approved ? game.cash + amount : game.cash,
       debt: approved ? game.debt + amount : game.debt,
+      annualDebtAdded: approved ? (game.annualDebtAdded ?? 0) + amount : game.annualDebtAdded ?? 0,
       familyDebt: approved ? (game.familyDebt ?? 0) + amount : game.familyDebt ?? 0,
       lastFamilyBorrowYear: game.year,
       gauges,
@@ -3014,6 +3051,7 @@ export default function Home() {
       ...game,
       cash: approved ? game.cash + amount : game.cash,
       debt: approved ? game.debt + amount : game.debt,
+      annualDebtAdded: approved ? (game.annualDebtAdded ?? 0) + amount : game.annualDebtAdded ?? 0,
       lastCreditBorrowYear: game.year,
       creditLoanMonthsRemaining: approved ? CREDIT_LOAN_TERM_MONTHS : game.creditLoanMonthsRemaining,
       gauges,
@@ -3097,17 +3135,18 @@ export default function Home() {
       const roll = random();
       const outcome = roll < chance ? "good" : roll < chance + kolFlatChance(game) ? "flat" : "bad";
       const trackRecordBonus = kolTrackRecordIncomeBonus(game.lastYearReadAccuracy);
-      const income = isColdStart
+      const baseIncome = isColdStart
         ? outcome === "good"
           ? Math.round((20000 + random() * 80000) / 1000) * 1000
           : outcome === "flat"
             ? Math.round(random() * 20000 / 1000) * 1000
             : 0
         : outcome === "good"
-          ? Math.min(KOL_MAX_ANNUAL_INCOME, Math.round((180000 + game.gauges.knowledge * 3000 + game.kolReputation * 5000 + trackRecordBonus + random() * KOL_GOOD_VARIABLE_INCOME) / 1000) * 1000)
+          ? Math.round((180000 + game.gauges.knowledge * 3000 + game.kolReputation * 5000 + trackRecordBonus + random() * KOL_GOOD_VARIABLE_INCOME) / 1000) * 1000
           : outcome === "flat"
             ? Math.max(0, Math.round((60000 + game.kolReputation * 1200 + trackRecordBonus * .2 + random() * 120000) / 1000) * 1000)
             : Math.round(random() * 60000 / 1000) * 1000;
+      const income = Math.min(kolAnnualIncomeCap(game.specialTrait), annualCareerIncome(baseIncome, game.specialTrait));
       next.income = income;
       next.workBaseIncomeThisYear = 0;
       next.incomeSource = isColdStart ? "股市 KOL · 冷啟動" : "股市 KOL";
@@ -3129,7 +3168,10 @@ export default function Home() {
           : outcome === "flat"
             ? game.lastYearReadAccuracy !== null && game.lastYearReadAccuracy >= .6 ? 2 : -2
             : -12;
-      next.gauges.stress = clamp(next.gauges.stress + stressDelta);
+      const workaholic = game.specialTrait === "工作狂";
+      const totalStressDelta = stressDelta + (workaholic ? 2 : 0);
+      next.gauges.stress = clamp(next.gauges.stress + totalStressDelta);
+      if (workaholic) next.gauges.health = clamp(next.gauges.health - 1);
       next.gauges.credit = clamp(next.gauges.credit + creditDelta);
       next.kolReputation = clamp((game.kolReputation ?? 0) + reputationDelta);
       notice = {
@@ -3139,8 +3181,8 @@ export default function Home() {
           : outcome === "good" ? "流量、訂閱與業配一起進場。" : outcome === "flat" ? "有人看影片，演算法沒有特別感動。" : "喊單連續翻車，留言區比帳戶更綠。",
         body: isColdStart
           ? `第一年是冷啟動期，收入只來自小額流量或第一筆試水溫合作。本年度收入確定為 ${formatMoney(income)}，將在年度結算時入帳。`
-          : `投資知識、上一年市場判讀戰績與累積聲量共同影響結果。${game.lastYearReadAccuracy === null ? "上一年沒有足夠方向紀錄。" : `上一年判讀命中率 ${Math.round(game.lastYearReadAccuracy * 100)}%。`}本年度 KOL 收入確定為 ${formatMoney(income)}，最高不超過 ${formatMoney(KOL_MAX_ANNUAL_INCOME)}。`,
-        deltas: [`年末待入帳 ${formatMoney(income)}`, `KOL 聲量 ${signedStat(reputationDelta)}（目前 ${next.kolReputation}）`, `投資知識 +${knowledgeGain}`, `壓力 ${signedStat(stressDelta)}`, `信用 ${creditDelta > 0 ? `+${creditDelta}` : creditDelta < 0 ? `−${Math.abs(creditDelta)}` : "不變"}`],
+          : `投資知識、上一年市場判讀戰績與累積聲量共同影響結果。${game.lastYearReadAccuracy === null ? "上一年沒有足夠方向紀錄。" : `上一年判讀命中率 ${Math.round(game.lastYearReadAccuracy * 100)}%。`}本年度 KOL 收入確定為 ${formatMoney(income)}，最高不超過 ${formatMoney(kolAnnualIncomeCap(game.specialTrait))}。`,
+        deltas: [`年末待入帳 ${formatMoney(income)}`, ...(workaholic ? ["工作狂收入 +8%", "健康 −1"] : []), `KOL 聲量 ${signedStat(reputationDelta)}（目前 ${next.kolReputation}）`, `投資知識 +${knowledgeGain}`, `壓力 ${signedStat(totalStressDelta)}`, `信用 ${creditDelta > 0 ? `+${creditDelta}` : creditDelta < 0 ? `−${Math.abs(creditDelta)}` : "不變"}`],
       };
     } else if (path === "family") {
       next.achievementStats.familyIncomeYears += 1;
@@ -3170,9 +3212,10 @@ export default function Home() {
       next.achievementStats.parttimeYears += 1;
       const streak = (game.parttimeStreak ?? 0) + 1;
       const consecutiveYears = (game.workConsecutiveYears ?? 0) + 1;
-      const healthCost = workHealthCost(consecutiveYears) + (game.workPromoted ? 1 : 0);
-      const stressCost = 8 + (game.workPromoted ? 3 : 0);
-      const income = rankedWorkIncome(streak, game.workPromoted);
+      const workaholic = game.specialTrait === "工作狂";
+      const healthCost = workHealthCost(consecutiveYears) + (game.workPromoted ? 1 : 0) + (workaholic ? 1 : 0);
+      const stressCost = 8 + (game.workPromoted ? 3 : 0) + (workaholic ? 2 : 0);
+      const income = annualCareerIncome(rankedWorkIncome(streak, game.workPromoted), game.specialTrait);
       next.income = income;
       next.workBaseIncomeThisYear = income;
       next.incomeSource = game.workPromoted ? "麥當當值班主管" : streak >= WORK_RAISE_STREAK ? "外出打工 · 資深薪資" : "外出打工";
@@ -3194,7 +3237,7 @@ export default function Home() {
           : streak >= WORK_RAISE_STREAK
             ? `目前工作年資第 ${streak} 年，年薪提高為 ${formatMoney(income)}，將在年度結算時入帳。${game.workTenureProtected ? "永久年資已保留，即使中途換跑道也不會歸零。" : "第 3 年可解鎖永久年資保留；之後每年薪資再調升 4%。"}`
           : `連續打工第 ${streak} 年，你換到穩定的 ${formatMoney(income)} 年收入；連續第 3 年起會提高為 ${formatMoney(EXPERIENCED_WORK_BASE_INCOME)}，之後每年再調升 4%。`,
-        deltas: [`年末待入帳 ${formatMoney(income)}`, `${next.workTenureProtected ? "保留年資" : "工作年資"} ${streak} 年`, `連續工作 ${consecutiveYears} 年`, ...(game.workPromoted ? ["主管基本年薪 +18%", "每季固定隱藏 1 則新聞"] : []), ...(tenureJustUnlocked ? ["永久年資保留 已解鎖"] : []), `健康 −${healthCost}`, `壓力 +${stressCost}`, "投資知識不變"],
+        deltas: [`年末待入帳 ${formatMoney(income)}`, ...(workaholic ? ["工作狂收入 +8%"] : []), `${next.workTenureProtected ? "保留年資" : "工作年資"} ${streak} 年`, `連續工作 ${consecutiveYears} 年`, ...(game.workPromoted ? ["主管基本年薪 +18%", "每季固定隱藏 1 則新聞"] : []), ...(tenureJustUnlocked ? ["永久年資保留 已解鎖"] : []), `健康 −${healthCost}`, `壓力 +${stressCost}`, "投資知識不變"],
       };
     }
 
@@ -3222,13 +3265,15 @@ export default function Home() {
     };
     const stats = next.careerEventStats;
     const workBase = annualWorkBaseIncome(game);
-    const sponsorshipFee = kolSponsorshipFee(game.kolReputation);
+    const sponsorshipFee = careerEventIncome(kolSponsorshipFee(game.kolReputation), game.specialTrait);
+    const eventIncome = (amount: number) => careerEventIncome(amount, game.specialTrait);
     const quarter = absoluteQuarterIndex(game);
     const chargeExpense = (amount: number) => {
       const paid = Math.min(Math.max(0, next.cash), amount);
       const financed = amount - paid;
       next.cash -= paid;
       next.debt += financed;
+      next.annualDebtAdded = (next.annualDebtAdded ?? 0) + financed;
       if (financed > 0) next.creditLoanMonthsRemaining = Math.max(next.creditLoanMonthsRemaining, CREDIT_LOAN_TERM_MONTHS);
       return { paid, financed };
     };
@@ -3236,7 +3281,7 @@ export default function Home() {
 
     if (careerEvent.id === "mcd_overtime") {
       if (choice === "A") {
-        const bonus = careerSalaryBonus(workBase, .12);
+        const bonus = eventIncome(careerSalaryBonus(workBase, .12));
         next.income += bonus;
         next.gauges.health = clamp(next.gauges.health - 1);
         next.gauges.stress = clamp(next.gauges.stress + 3);
@@ -3249,7 +3294,7 @@ export default function Home() {
       }
     } else if (careerEvent.id === "mcd_coworker_leave") {
       if (choice === "A") {
-        const bonus = careerSalaryBonus(workBase, .06);
+        const bonus = eventIncome(careerSalaryBonus(workBase, .06));
         next.income += bonus;
         next.gauges.health = clamp(next.gauges.health - 1);
         next.gauges.stress = clamp(next.gauges.stress + 2);
@@ -3279,7 +3324,7 @@ export default function Home() {
         next.gauges.credit = clamp(next.gauges.credit - 3);
         next.gauges.knowledge = clamp(next.gauges.knowledge - 1);
         stats.kolCash += sponsorshipFee;
-        notice = { tone: "flat", title: "業配準時上線，信用開始延遲入帳。", body: "這筆現金是額外職業事件收入，不受156萬元年度 KOL 收入上限影響。", deltas: [`現金 +${formatMoney(sponsorshipFee).replace("NT$ ", "")}`, "KOL 聲量 +4", "信用 −3", "投資知識 −1"] };
+        notice = { tone: "flat", title: "業配準時上線，信用開始延遲入帳。", body: "這筆現金是額外職業事件收入，不占年度 KOL 收入上限。", deltas: [`現金 +${formatMoney(sponsorshipFee).replace("NT$ ", "")}`, "KOL 聲量 +4", "信用 −3", "投資知識 −1"] };
       } else {
         const earned = Math.round(sponsorshipFee * .6);
         next.cash += earned;
@@ -3294,20 +3339,22 @@ export default function Home() {
       }
     } else if (careerEvent.id === "kol_viral_video") {
       if (choice === "A") {
-        next.cash += 100000;
+        const earned = eventIncome(100000);
+        next.cash += earned;
         next.kolReputation = clamp(next.kolReputation + 8);
         next.gauges.health = clamp(next.gauges.health - 3);
         next.gauges.stress = clamp(next.gauges.stress + 6);
         next.hiddenNewsRemaining += 1;
-        stats.kolCash += 100000;
-        notice = { tone: "good", title: "你趁熱追更，流量和黑眼圈一起成長。", body: "下一則新聞仍會影響行情，但你只來得及剪片，沒時間閱讀。", deltas: ["現金 +100,000", "KOL 聲量 +8", "健康 −3", "壓力 +6", "下一則新聞 隱藏"] };
+        stats.kolCash += earned;
+        notice = { tone: "good", title: "你趁熱追更，流量和黑眼圈一起成長。", body: "下一則新聞仍會影響行情，但你只來得及剪片，沒時間閱讀。", deltas: [`現金 +${formatMoney(earned).replace("NT$ ", "")}`, "KOL 聲量 +8", "健康 −3", "壓力 +6", "下一則新聞 隱藏"] };
       } else {
-        next.cash += 30000;
+        const earned = eventIncome(30000);
+        next.cash += earned;
         next.kolReputation = clamp(next.kolReputation + 3);
         next.gauges.health = clamp(next.gauges.health + 1);
         next.gauges.stress = clamp(next.gauges.stress - 2);
-        stats.kolCash += 30000;
-        notice = { tone: "flat", title: "你沒有追著演算法跑，舊流量仍帶來一點收入。", body: "本季兩則新聞照常閱讀，身體也得到一點恢復。", deltas: ["現金 +30,000", "KOL 聲量 +3", "健康 +1", "壓力 −2"] };
+        stats.kolCash += earned;
+        notice = { tone: "flat", title: "你沒有追著演算法跑，舊流量仍帶來一點收入。", body: "本季兩則新聞照常閱讀，身體也得到一點恢復。", deltas: [`現金 +${formatMoney(earned).replace("NT$ ", "")}`, "KOL 聲量 +3", "健康 +1", "壓力 −2"] };
       }
     } else if (careerEvent.id === "kol_asset_crash") {
       const crashed = currentCrashedEndorsement(game);
@@ -3319,14 +3366,15 @@ export default function Home() {
         next.gauges.stress = clamp(next.gauges.stress + 3);
         notice = { tone: "flat", title: "你公開道歉，流量掉了，信用沒有一起跌停。", body: crashed ? `「${crashed.name}」這次重挫成為一堂公開的風險課。` : "你把錯誤留下來，沒有再用新話術蓋過去。", deltas: ["KOL 聲量 −10", "信用 +4", "投資知識 +2", "壓力 +3"] };
       } else {
-        next.cash += 60000;
+        const earned = eventIncome(60000);
+        next.cash += earned;
         next.kolReputation = clamp(next.kolReputation + 5);
         next.gauges.credit = clamp(next.gauges.credit - 6);
         next.gauges.knowledge = clamp(next.gauges.knowledge - 3);
         next.gauges.stress = clamp(next.gauges.stress + 7);
         next.publicShoutCount += 1;
-        stats.kolCash += 60000;
-        notice = { tone: "bad", title: "你把重挫說成洗盤，流量回來，信用先離場。", body: "這次硬拗也被計為一次公開喊單，會提高未來遭調查事件的觸發資格。", deltas: ["現金 +60,000", "KOL 聲量 +5", "信用 −6", "投資知識 −3", "壓力 +7", "累計公開喊單 +1"] };
+        stats.kolCash += earned;
+        notice = { tone: "bad", title: "你把重挫說成洗盤，流量回來，信用先離場。", body: "這次硬拗也被計為一次公開喊單，會提高未來遭調查事件的觸發資格。", deltas: [`現金 +${formatMoney(earned).replace("NT$ ", "")}`, "KOL 聲量 +5", "信用 −6", "投資知識 −3", "壓力 +7", "累計公開喊單 +1"] };
       }
     } else {
       stats.investigations += 1;
@@ -3441,7 +3489,7 @@ export default function Home() {
   function finishYear(closingGame?: Game) {
     const current = closingGame ?? game;
     if (!current) return;
-    const livingCost = annualLivingCost(current.year);
+    const livingCost = annualLivingCost(current.year, current.specialTrait);
     const incomeAdded = current.income;
     const generalInterestDebt = Math.max(0, current.debt - (current.familyDebt ?? 0));
     const cashBeforeDebtService = current.cash + incomeAdded - livingCost;
@@ -3462,10 +3510,14 @@ export default function Home() {
     const generalDebtPressure = generalDebtAfter > Math.max(1000000, incomeAdded * 4) ? 2 : generalDebtAfter > Math.max(500000, incomeAdded * 2) ? 1 : 0;
     const missedCreditPayment = creditPaymentShortfall >= 1;
     const debtPressure = generalDebtPressure;
+    const bookkeeping = current.specialTrait === "記帳強迫症";
+    const annualDebtAdded = (current.annualDebtAdded ?? 0) + liquidityDebtAdded;
+    const bookkeepingCreditBonus = bookkeeping && annualDebtAdded <= 0 ? 1 : 0;
+    const bookkeepingDebtStress = bookkeeping && debt > 0 ? 2 : 0;
     const annualHealthRecovery = gauges.stress < 35 ? 3 : 1;
     gauges.health = clamp(gauges.health - Math.max(0, Math.round((gauges.stress - 55) / 12)) + annualHealthRecovery);
-    gauges.stress = clamp(gauges.stress - 5 + (liquidityDebtAdded > 0 ? 6 : 0) + (missedCreditPayment ? 7 : 0) + debtPressure);
-    gauges.credit = clamp(gauges.credit + (liquidityDebtAdded > 0 ? -6 : missedCreditPayment ? -5 : 2));
+    gauges.stress = clamp(gauges.stress - 5 + (liquidityDebtAdded > 0 ? 6 : 0) + (missedCreditPayment ? 7 : 0) + debtPressure + bookkeepingDebtStress);
+    gauges.credit = clamp(gauges.credit + (liquidityDebtAdded > 0 ? -6 : missedCreditPayment ? -5 : 2) + bookkeepingCreditBonus);
     const creditLoanMonthsRemaining = generalDebtAfter <= 0 ? 0 : liquidityDebtAdded > 0 ? CREDIT_LOAN_TERM_MONTHS : creditService.monthsRemaining;
     const achievementStats = current.achievementStats ?? blankAchievementStats();
     const holdsRedHatPortfolio = current.assets.some((asset) => asset.name === "紅帽美國優先組合" && asset.value > 0);
@@ -3480,6 +3532,7 @@ export default function Home() {
       debt,
       assets,
       gauges,
+      annualDebtAdded,
       creditLoanMonthsRemaining,
       lastYearReadAccuracy,
       achievementStats: {
@@ -3516,6 +3569,9 @@ export default function Home() {
       generalInterestPaid: creditService.interestPaid,
       interestCapitalized,
       liquidityDebtAdded,
+      bookkeepingCreditBonus,
+      bookkeepingDebtStress,
+      nextLivingCost: annualLivingCost(current.year + 1, current.specialTrait),
     };
     const yearClosed = { ...nextBase, phase: "summary" as const, result: null, annualSummary: summary };
     trackAnonymous("year_completed", {
@@ -3555,6 +3611,7 @@ export default function Home() {
       annualMarketMove: 0,
       quarterMarketMove: 0,
       annualSummary: null,
+      annualDebtAdded: 0,
       income: 0,
       workBaseIncomeThisYear: 0,
       incomeSource: "尚未決定",
@@ -3889,6 +3946,9 @@ export default function Home() {
               {game.annualSummary.creditPaymentShortfall > 0 && <div><span>信貸本息未繳足 · 未付利息併入負債</span><b className="negative">差額 {formatMoney(game.annualSummary.creditPaymentShortfall)}</b></div>}
               {game.annualSummary.interestCapitalized > 0 && <div><span>未付利息併入負債</span><b className="negative">+{formatMoney(game.annualSummary.interestCapitalized).replace("NT$ ", "")}</b></div>}
               {game.annualSummary.liquidityDebtAdded > 0 && <div><span>生活資金缺口轉為短期負債</span><b className="negative">+{formatMoney(game.annualSummary.liquidityDebtAdded).replace("NT$ ", "")}</b></div>}
+              {game.specialTrait === "記帳強迫症" && game.annualSummary.bookkeepingDebtStress > 0 && <div><span>記帳強迫症 · 年末仍持有負債</span><b className="negative">壓力 +2</b></div>}
+              {game.specialTrait === "記帳強迫症" && game.annualSummary.bookkeepingCreditBonus > 0 && <div><span>記帳強迫症 · 全年未新增借款</span><b className="positive">信用 +1</b></div>}
+              {game.specialTrait === "記帳強迫症" && game.age < FINAL_AGE - 1 && <div><span>下一年度預估生活費 · 已減免 8%</span><b>{formatMoney(game.annualSummary.nextLivingCost)}</b></div>}
               <div><span>年末淨資產</span><b>{formatMoney(game.annualSummary.endNet)}</b></div>
             </div>
             <button className="primary" onClick={startNextYear}>{game.age >= FINAL_AGE - 1 ? "查看人生結局" : `迎接 ${game.age + 1} 歲`} <span>→</span></button>
@@ -4079,7 +4139,7 @@ export default function Home() {
         <section className="decision-dialog income-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="income-choice-title">
           <p className="eyebrow green">第 {game.year} 年 · 專業韭菜生存計畫</p>
           <h2 id="income-choice-title">今年要靠什麼活？</h2>
-          <p>本年固定生活費為 {formatMoney(annualLivingCost(game.year))}，收入會在年度結算時入帳。每年必須選擇一次，選定後不能反悔。</p>
+          <p>本年固定生活費為 {formatMoney(annualLivingCost(game.year, game.specialTrait))}{game.specialTrait === "記帳強迫症" ? "（記帳強迫症已減少 8%）" : ""}，收入會在年度結算時入帳。每年必須選擇一次，選定後不能反悔。</p>
           <div className="income-finance-grid" aria-label="目前財務狀況">
             <div><i aria-hidden="true">＄</i><span>現金</span><b>{formatMoney(game.cash)}</b></div>
             <div><i aria-hidden="true">↗</i><span>投資資產</span><b>{formatMoney(totalAssets)}</b></div>
@@ -4103,9 +4163,9 @@ export default function Home() {
             </div>
           </section>
           <div className="income-path-list">
-            <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? "職業更新為投資KOL · 冷啟動期 · 收入 0～10 萬 · 小爆紅機率約 12%" : `職業更新為投資KOL · 收入 0～156 萬 · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力`}</small></button>
+            <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? `職業更新為投資KOL · 冷啟動期 · 收入 0～${game.specialTrait === "工作狂" ? "10.8" : "10"} 萬 · 小爆紅機率約 12%${game.specialTrait === "工作狂" ? " · 健康額外 −1、壓力 +2" : ""}` : `職業更新為投資KOL · 收入上限 ${formatMoney(kolAnnualIncomeCap(game.specialTrait))} · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力${game.specialTrait === "工作狂" ? " · 健康額外 −1、壓力 +2" : ""}`}</small></button>
             <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接18萬元臨時零工、家庭關係 −5</small></button>
-            <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>{game.workPromoted ? "麥當當值班主管" : "麥當當員工"}</b><small>職業更新為{game.workPromoted ? "麥當當值班主管" : "麥當當員工"} · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(rankedWorkIncome(game.parttimeStreak + 1, game.workPromoted))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1) + (game.workPromoted ? 1 : 0)}、壓力 +{8 + (game.workPromoted ? 3 : 0)}{game.workPromoted ? " · 每季固定少看1則新聞" : ""}</small></button>
+            <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>{game.workPromoted ? "麥當當值班主管" : "麥當當員工"}</b><small>職業更新為{game.workPromoted ? "麥當當值班主管" : "麥當當員工"} · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(annualCareerIncome(rankedWorkIncome(game.parttimeStreak + 1, game.workPromoted), game.specialTrait))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1) + (game.workPromoted ? 1 : 0) + (game.specialTrait === "工作狂" ? 1 : 0)}、壓力 +{8 + (game.workPromoted ? 3 : 0) + (game.specialTrait === "工作狂" ? 2 : 0)}{game.workPromoted ? " · 每季固定少看1則新聞" : ""}</small></button>
           </div>
         </section>
       </div>}

@@ -198,7 +198,7 @@ function seededRandom(seed) {
   return () => { x += 0x6D2B79F5; let t = Math.imul(x ^ x >>> 15, 1 | x); t ^= t + Math.imul(t ^ t >>> 7, 61 | t); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
 function pick(items, random) { return items[Math.floor(random() * items.length)]; }
-function reserveFor(g, id) { return ['aggressive','random'].includes(id) ? 20000 : Math.max(80000, app.annualLivingCost(g.year) - g.income + 50000); }
+function reserveFor(g, id) { return ['aggressive','random'].includes(id) ? 20000 : Math.max(80000, app.annualLivingCost(g.year, g.specialTrait) - g.income + 50000); }
 function chooseCareer(g, id, random) {
   if (id === 'safe') return 'parttime';
   if (id === 'cash') return 'parttime';
