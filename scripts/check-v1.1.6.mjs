@@ -50,17 +50,17 @@ test("v1.1.6 is synchronized and its public release note stays intentionally min
   }
 });
 
-test("family backer now starts with 800000 and receives fixed 1000000 support", () => {
+test("ordinary family backer is restored to 500000 cash and 500000 support", () => {
   let backer;
   for (let index = 0; index < 5000 && !backer; index += 1) {
     const candidate = game.makeGame("", `V116-FAMILY-${index}`);
-    if (candidate.trait === "家族靠山") backer = candidate;
+    if (candidate.trait === "家族靠山" && candidate.specialTrait !== "你爸是董座") backer = candidate;
   }
   assert(backer);
-  assert.equal(backer.cash, 800000);
-  assert.equal(game.familySupportAmount(backer), 1000000);
-  assert.match(wiki, /起始現金額外 \+NT\$ 500,000/);
-  assert.match(wiki, /固定獲得 NT\$ 1,000,000/);
+  assert.equal(backer.cash, 500000);
+  assert.equal(game.familySupportAmount(backer), 500000);
+  assert.match(wiki, /起始現金額外 \+NT\$ 200,000/);
+  assert.match(wiki, /固定獲得 NT\$ 500,000/);
 });
 
 test("chairman child is only a five-percent upgrade of family backer and replaces the normal secondary trait", () => {
@@ -84,6 +84,8 @@ test("chairman child is only a five-percent upgrade of family backer and replace
   assert(rate > .04 && rate < .06, `upgrade rate was ${(rate * 100).toFixed(2)}%`);
   assert.equal(rareGame.trait, "家族靠山");
   assert.equal(rareGame.specialTrait, "你爸是董座");
+  assert.equal(rareGame.cash, 800000);
+  assert.equal(game.familySupportAmount(rareGame), 1000000);
   assert(!game.specialTraitSlots.includes("你爸是董座"));
 });
 

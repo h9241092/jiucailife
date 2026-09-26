@@ -1206,11 +1206,15 @@ const kolTrackRecordIncomeBonus = (accuracy: number | null) => accuracy === null
   ? 0
   : Math.round(clamp((accuracy - .5) * 600000, -90000, 300000) / 1000) * 1000;
 const familySupportChance = (game: Pick<Game, "gauges" | "familySupportStreak">) => clamp(.3 + game.gauges.family * .007 - game.familySupportStreak * .05, .15, .9);
-const FAMILY_BACKER_STARTING_CASH_BONUS = 500000;
-const FAMILY_BACKER_ANNUAL_SUPPORT = 1000000;
-const familySupportAmount = (game: Pick<Game, "trait" | "gauges">) => game.trait === "家族靠山"
-  ? FAMILY_BACKER_ANNUAL_SUPPORT
-  : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
+const FAMILY_BACKER_STARTING_CASH_BONUS = 200000;
+const FAMILY_BACKER_ANNUAL_SUPPORT = 500000;
+const CHAIRMAN_CHILD_STARTING_CASH_BONUS = 500000;
+const CHAIRMAN_CHILD_ANNUAL_SUPPORT = 1000000;
+const familySupportAmount = (game: Pick<Game, "trait" | "specialTrait" | "gauges">) => game.specialTrait === "你爸是董座"
+  ? CHAIRMAN_CHILD_ANNUAL_SUPPORT
+  : game.trait === "家族靠山"
+    ? FAMILY_BACKER_ANNUAL_SUPPORT
+    : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
 const annualLivingCost = (year: number, specialTrait: SpecialTrait | null = null) => Math.round(
   288000 * Math.pow(1.02, year - 1) * (specialTrait === "記帳強迫症" ? .92 : 1) / 1000,
 ) * 1000;
@@ -1703,7 +1707,7 @@ const surpriseAngles = [
 const names = ["嘎尾", "喆喆", "成龍", "祥德", "銀龍", "千安", "屁渴脫", "骨癌"];
 const traits = [
   ["數字敏感", "投資知識較高，穩健選項成功率提升", { knowledge: 8 }],
-  ["家族靠山", "家庭關係 +10；起始現金額外 +50 萬元；家裡資助通過時，每年獲得 100 萬元", { family: 10 }],
+  ["家族靠山", "家庭關係 +10；起始現金額外 +20 萬元；家裡資助通過時，每年獲得 50 萬元", { family: 10 }],
   ["信用小白", "信用較低，但沒有任何歷史包袱", { credit: -8 }],
   ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -10 }],
   ["體弱多病", "初始健康只有 56～64，市場以外也有風險", { healthRange: [56, 64] }],
@@ -1712,7 +1716,7 @@ const traits = [
 const PAPER_HANDS_EFFECT = "不影響初始能力，但自主減倉時只能全部清倉";
 const WORKAHOLIC_EFFECT = "投資KOL與麥當當年度收入 +8%，職業事件收入 +15%；有工作時健康額外 −1、壓力 +2，KOL 年收入上限提高至 180 萬元";
 const BOOKKEEPER_EFFECT = "固定生活支出 −8%；持有負債時年末壓力 +2，全年未新增借款時年末信用 +1";
-const CHAIRMAN_CHILD_EFFECT = "家族靠山的稀有升級；每年兩季會從家族飯桌取得一則主要標的情報";
+const CHAIRMAN_CHILD_EFFECT = "家族靠山的稀有升級；家庭關係 +10、起始現金額外 +50 萬元、家裡資助通過時固定獲得 100 萬元；每年兩季會從家族飯桌取得一則主要標的情報";
 const CHAIRMAN_CHILD_UPGRADE_PERCENT = 5;
 const specialTraitSlots: readonly (SpecialTrait | null)[] = ["紙手體質", "工作狂", "記帳強迫症", null, null, null];
 const specialTraitEffect = (trait: SpecialTrait | null) => trait === "紙手體質"
@@ -1773,7 +1777,9 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
     knowledge: clamp(baseGauges.knowledge + ("knowledge" in trait[2] ? trait[2].knowledge! : 0)),
     credit: clamp(baseGauges.credit + ("credit" in trait[2] ? trait[2].credit! : 0)),
   };
-  const startingCash = 300000 + (trait[0] === "家族靠山" ? FAMILY_BACKER_STARTING_CASH_BONUS : 0);
+  const startingCash = 300000 + (isChairmanChild
+    ? CHAIRMAN_CHILD_STARTING_CASH_BONUS
+    : trait[0] === "家族靠山" ? FAMILY_BACKER_STARTING_CASH_BONUS : 0);
   return {
     age: STARTING_AGE, year: 1, seed, seedCode, phase: "season", season: 0, month: 0,
     name: chosenName, background: "迷茫的大學畢業生", occupation: "無業", trait: trait[0], traitEffect: trait[1], specialTrait, specialTraitEffect: specialTraitEffect(specialTrait),

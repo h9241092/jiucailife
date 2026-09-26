@@ -1,6 +1,6 @@
 /** Local-only simulation: executes the current Home component's real handlers.
  * No production module is edited, no browser or analytics transport is loaded.
- * Usage: node scripts/simulate-current-game.mjs 10000 reports/current-10000 0 QA106 [paired|random] [policyOffset]
+ * Usage: node scripts/simulate-current-game.mjs 10000 reports/current-10000 0 QA106 [paired|random|manifest] [policyOffset] [manifestPath]
  */
 /* eslint-disable @typescript-eslint/no-this-alias -- The hook harness intentionally exposes the active Runner instance. */
 import fs from 'node:fs';
@@ -17,8 +17,11 @@ const outputDirArg = process.argv[3];
 const seedOffset = Number(process.argv[4] ?? 0);
 const seedMode = process.argv[6] ?? 'paired';
 const policyOffset = Number(process.argv[7] ?? 0);
+const manifestPath = process.argv[8];
 assert(runsRequested > 0, 'Run count must be positive');
-assert(['paired','random'].includes(seedMode), 'Seed mode must be paired or random');
+assert(['paired','random','manifest'].includes(seedMode), 'Seed mode must be paired, random, or manifest');
+const manifestRuns = seedMode === 'manifest' ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : [];
+if (seedMode === 'manifest') assert.equal(manifestRuns.length, runsRequested, 'Manifest length must match run count');
 const sourcePath = path.join(root, 'app/page.tsx');
 const source = fs.readFileSync(sourcePath, 'utf8');
 const catalogSource = fs.readFileSync(path.join(root, 'app/event-catalog.ts'), 'utf8');
@@ -169,12 +172,15 @@ class Runner {
   record(type, data, game) {
     this.logs.push({ type, data: { ...data }, year: game?.year, age: game?.age, season: game?.season, month: game?.month });
     if (type === 'event_choice') {
-      const key = `${game.year}:${data.eventId}`;
-      if (this.eventYears.has(key)) this.duplicateEvents++;
-      this.eventYears.set(key, true);
-      const topicKey = `${game.year}:${eventById.get(data.eventId)?.topicId}`;
-      if (this.topicYears.has(topicKey)) this.duplicateCoreEvents++;
-      this.topicYears.add(topicKey);
+      const catalogEvent = eventById.get(data.eventId);
+      if (catalogEvent) {
+        const key = `${game.year}:${data.eventId}`;
+        if (this.eventYears.has(key)) this.duplicateEvents++;
+        this.eventYears.set(key, true);
+        const topicKey = `${game.year}:${catalogEvent.topicId}`;
+        if (this.topicYears.has(topicKey)) this.duplicateCoreEvents++;
+        this.topicYears.add(topicKey);
+      }
       if (this.lastReads.year !== game.year) this.lastReads = { year:game.year,directional:0,correct:0 };
       this.readCounts.directional += game.annualDirectionalReads - this.lastReads.directional;
       this.readCounts.correct += game.annualCorrectReads - this.lastReads.correct;
@@ -303,6 +309,7 @@ function simulate(seed, policy, collectTrace = false) {
     if (r.debtManagedYear !== g.year) { r.debtManagedYear = g.year; manageDebt(r,id,random); continue; }
     if (v.pendingReduction) { r.call('confirmReduction', g.specialTrait === '紙手體質' ? 1 : .5); continue; }
     if (v.brokerOpen) { trade(r,id,random); r.call('closeBrokerMonth'); r.monthlySamples++; continue; }
+    if (v.currentChairmanTip) { r.call('acceptChairmanTip'); continue; }
     if (v.currentNewsHidden) { r.call('processHiddenNews'); continue; }
     if (g.result) { r.call('continueAfterResult'); continue; }
     assert(v.currentEvent && v.currentChoices.length === 3, 'Missing three-choice event');
@@ -358,9 +365,11 @@ if (seedMode === 'random') {
     if (!seen.has(seed)) { seen.add(seed); randomSeeds.push(seed); }
   }
 }
-const replaySeed = seedMode === 'random' ? randomSeeds[0] : `${seedPrefix}-000001`;
+const replaySeed = seedMode === 'random' ? randomSeeds[0] : seedMode === 'manifest' ? manifestRuns[0].seed : `${seedPrefix}-000001`;
 console.log(seedMode === 'random'
   ? `v${app.GAME_VERSION.replace(/^v/,'')} local real-handler simulation: ${runsRequested} games / ${runsRequested} random unique seeds`
+  : seedMode === 'manifest'
+    ? `v${app.GAME_VERSION.replace(/^v/,'')} local real-handler simulation: ${runsRequested} manifest games`
   : `v${app.GAME_VERSION.replace(/^v/,'')} local real-handler simulation: ${runsRequested} games / ${runsRequested/policies.length} paired seeds`);
 // A replay must be identical; this also exercises both death and annual transitions in the pilot.
 for (const policy of policies) {
@@ -369,7 +378,16 @@ for (const policy of policies) {
   assert.equal(JSON.stringify(first),JSON.stringify(second), `Non-deterministic replay: ${policy.id}`);
 }
 const rows = [], failures = [];
-if (seedMode === 'random') {
+if (seedMode === 'manifest') {
+  for (let i=0; i<manifestRuns.length; i++) {
+    const { seed, policy: policyId } = manifestRuns[i];
+    const policy = policies.find((candidate) => candidate.id === policyId);
+    assert(policy, `Unknown manifest policy: ${policyId}`);
+    try { rows.push(simulate(seed,policy)); }
+    catch(error) { failures.push({ seed, policy:policy.id, error:error.stack }); console.error(`FAILED ${seed}/${policy.id}: ${error.message}`); }
+    if ((i+1)%100===0 || i+1===manifestRuns.length) { deckCache.clear(); console.log(`${rows.length}/${runsRequested} settled; ${failures.length} failures; ${((performance.now()-start)/1000).toFixed(1)} sec`); }
+  }
+} else if (seedMode === 'random') {
   for (let i=0; i<runsRequested; i++) {
     const seed = randomSeeds[i], policy = policies[(i + policyOffset) % policies.length];
     try { rows.push(simulate(seed,policy)); }
@@ -391,8 +409,8 @@ if (seedMode === 'random') {
 const achievementCatalog = app.achievementsFor(app.makeGame('', replaySeed)).map(({id,title,tier,description})=>({id,title,tier,description}));
 const metadata = {
   generatedAt:new Date().toISOString(),version:app.GAME_VERSION,requested:runsRequested,completed:rows.length,
-  distinctSeeds:seedMode === 'random' ? runsRequested : runsRequested/policies.length, seedMode, policyOffset,
-  seedPattern:seedMode === 'random' ? `${seedPrefix}-XXXXXXXXXXXX (cryptographically random, unique within this run)` : `${seedPrefix}-${String(seedOffset+1).padStart(6,'0')}..${seedPrefix}-${String(seedOffset+runsRequested/policies.length).padStart(6,'0')}`,
+  distinctSeeds:seedMode === 'paired' ? runsRequested/policies.length : runsRequested, seedMode, policyOffset,
+  seedPattern:seedMode === 'random' ? `${seedPrefix}-XXXXXXXXXXXX (cryptographically random, unique within this run)` : seedMode === 'manifest' ? `Explicit manifest: ${manifestPath}` : `${seedPrefix}-${String(seedOffset+1).padStart(6,'0')}..${seedPrefix}-${String(seedOffset+runsRequested/policies.length).padStart(6,'0')}`,
   method:'Current app/page.tsx handlers and game-state effects, TypeScript transpilation and local hook runner; presentation and browser lifecycle omitted.',
   elapsedSeconds:(performance.now()-start)/1000,networkAttempts,deterministicReplayChecks:policies.length,
   sourceSha256:crypto.createHash('sha256').update(source).digest('hex'),
