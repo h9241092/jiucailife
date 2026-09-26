@@ -16,6 +16,13 @@ export const dynamic = "force-dynamic";
 const money = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
 const formatMoney = (value: number) => `${value < 0 ? "−" : ""}NT$ ${money.format(Math.abs(Math.round(value)))}`;
 const percentage = (value: number, total: number) => total ? `${(value / total * 100).toFixed(1)}%` : "0.0%";
+const requiredAchievementIds = ["hundredMillionMystery", "chairmanChild"] as const;
+
+function includeRequiredAchievementRows(rows: MetricRow[]) {
+  const byDimension = new Map(rows.map((row) => [row.dimension, row]));
+  const required = requiredAchievementIds.map((dimension) => byDimension.get(dimension) ?? { dimension, count: 0, total: 0 });
+  return [...required, ...rows.filter((row) => !requiredAchievementIds.includes(row.dimension as typeof requiredAchievementIds[number]))];
+}
 
 function MetricList({ title, rows, metric, empty = "尚無資料", completedOnly = false }: { title: string; rows: MetricRow[]; metric?: LocalizedMetric; empty?: string; completedOnly?: boolean }) {
   const highest = Math.max(1, ...rows.map((row) => row.count));
@@ -23,7 +30,7 @@ function MetricList({ title, rows, metric, empty = "尚無資料", completedOnly
     <header><h2>{title}</h2><span>{completedOnly ? "僅完成局 · 近 180 天" : "近 180 天"}</span></header>
     {rows.length ? <ol>{rows.map((row) => <li key={row.dimension}>
       <div><b>{metricDimensionLabel(metric, row.dimension)}</b><span>{money.format(row.count)} 次</span></div>
-      <i><em style={{ width: `${Math.max(3, row.count / highest * 100)}%` }} /></i>
+      <i><em style={{ width: row.count > 0 ? `${Math.max(3, row.count / highest * 100)}%` : "0%" }} /></i>
     </li>)}</ol> : <p className="analytics-empty">{empty}</p>}
   </section>;
 }
@@ -32,16 +39,17 @@ export default async function AnalyticsAdminPage() {
   const requestHeaders = await headers();
   if (!await isAnalyticsAdmin(requestHeaders)) redirect("/admin/login");
   const { db, summary, daily, recentRuns } = await readAnalyticsReport();
-  const [eventChoices, incomeChoices, trades, endings, achievements, illnessChoices, familyChoices, surprises] = await Promise.all([
+  const [eventChoices, incomeChoices, trades, endings, achievementMetrics, illnessChoices, familyChoices, surprises] = await Promise.all([
     readCompletedRunMetric(db, "event_choices", 6),
     readCompletedRunMetric(db, "income_choices", 6),
     readCompletedRunMetric(db, "trades", 10),
     readMetric(db, "endings", 10),
-    readMetric(db, "achievements", 10),
+    readMetric(db, "achievements", 30),
     readCompletedRunMetric(db, "illness_choices", 10),
     readCompletedRunMetric(db, "family_choices", 6),
     readCompletedRunMetric(db, "surprises", 10),
   ]);
+  const achievements = includeRequiredAchievementRows(achievementMetrics);
   const dailyPeak = Math.max(1, ...daily.map((day) => Math.max(day.started, day.completed, day.abandoned)));
 
   return <main className="analytics-admin">

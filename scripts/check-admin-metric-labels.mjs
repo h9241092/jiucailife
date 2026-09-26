@@ -53,8 +53,8 @@ test('annual career choices are Chinese and distinguish support from loans', () 
 test('every achievement uses the exact in-game Chinese title', () => {
   const game = fs.readFileSync('app/page.tsx', 'utf8');
   const catalog = game.slice(game.indexOf('const achievementsFor ='), game.indexOf('const riskLabel ='));
-  const achievements = [...catalog.matchAll(/\{ id: "([^"]+)", title: "([^"]+)"/g)];
-  assert.equal(achievements.length, 23);
+  const achievements = [...catalog.matchAll(/\{\s*id:\s*"([^"]+)",\s*title:\s*"([^"]+)"/g)];
+  assert.equal(achievements.length, 24);
   for (const [, id, title] of achievements) assert.equal(label('achievements', id), title);
 });
 
@@ -103,6 +103,20 @@ test('ranking renders Chinese without changing dimensions, counts, ordering or b
   const escaped = renderToStaticMarkup(createElement(MetricList, { title:'成就達成', rows:[{dimension:'<script>alert(1)</script>',count:1,total:0}], metric:'achievements' }));
   assert(!escaped.includes('<script>'));
   assert(escaped.includes('&lt;script&gt;'));
+});
+
+test('hidden and special achievements stay visible in the dashboard table, even at zero', () => {
+  assert.equal(label('achievements', 'hundredMillionMystery'), '你是谷癌？');
+  assert.equal(label('achievements', 'chairmanChild'), '拎北是天公仔');
+  assert.match(adminSource, /requiredAchievementIds = \["hundredMillionMystery", "chairmanChild"\]/);
+  assert.match(adminSource, /readMetric\(db, "achievements", 30\)/);
+  assert.match(adminSource, /count: 0, total: 0/);
+  const markup = renderToStaticMarkup(createElement(MetricList, {
+    title:'成就達成', rows:[{dimension:'chairmanChild',count:0,total:0}], metric:'achievements', completedOnly:true,
+  }));
+  assert(markup.includes('拎北是天公仔'));
+  assert(markup.includes('0 次'));
+  assert(markup.includes('width:0%'));
 });
 
 test('empty rankings and unrelated metric labels retain their original behavior', () => {
