@@ -1,6 +1,6 @@
 # 韭菜人生模擬器｜JIU-CAI LIFE
 
-目前版本：`v1.1.5`
+目前版本：`v1.1.6`
 
 這是一款以台股、美股、ETF 與加密貨幣為舞台的純文字投資人生模擬器。靈感來自 yakyulife（棒球人生模擬器）
 
@@ -19,6 +19,10 @@
 本專案使用 Next.js、vinext 與 Cloudflare Workers。匿名遊玩統計由同一個 Worker 的 `/api/analytics` 接收並寫入 D1；製作人後台位於 `/admin`，使用獨立密碼保護。
 
 GitHub 負責版本管理與自動部署，遊戲、統計 API 和管理後台皆由 Cloudflare Worker 提供。
+
+## v1.1.6 更新內容
+
+- 新增特殊人物性質。
 
 ## v1.1.5 更新內容
 

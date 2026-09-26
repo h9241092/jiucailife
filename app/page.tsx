@@ -78,6 +78,7 @@ type IntelRecord = {
   readDirection: SurpriseDirection | null;
   confidenceLabel?: string;
   opportunityLabel?: string;
+  source?: string;
 };
 type QuarterSurprise = {
   id: string;
@@ -129,7 +130,7 @@ type BorrowTier = "small" | "medium" | "large";
 type DebtAction = "borrow" | "repay" | "creditBorrow" | "interest";
 type DebtNotice = { tone: "good" | "bad"; title: string; body: string };
 type IncomePath = "kol" | "family" | "parttime";
-type SpecialTrait = "紙手體質" | "工作狂" | "記帳強迫症";
+type SpecialTrait = "紙手體質" | "工作狂" | "記帳強迫症" | "你爸是董座";
 type IncomeNotice = { tone: "good" | "flat" | "bad"; title: string; body: string; deltas: string[] };
 type FamilyEvent = { id: string; title: string; body: string; quote: string };
 type FamilyEventChoice = "time" | "money" | "decline";
@@ -269,7 +270,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.5";
+const GAME_VERSION = "v1.1.6";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -1205,8 +1206,8 @@ const kolTrackRecordIncomeBonus = (accuracy: number | null) => accuracy === null
   ? 0
   : Math.round(clamp((accuracy - .5) * 600000, -90000, 300000) / 1000) * 1000;
 const familySupportChance = (game: Pick<Game, "gauges" | "familySupportStreak">) => clamp(.3 + game.gauges.family * .007 - game.familySupportStreak * .05, .15, .9);
-const FAMILY_BACKER_STARTING_CASH_BONUS = 200000;
-const FAMILY_BACKER_ANNUAL_SUPPORT = 500000;
+const FAMILY_BACKER_STARTING_CASH_BONUS = 500000;
+const FAMILY_BACKER_ANNUAL_SUPPORT = 1000000;
 const familySupportAmount = (game: Pick<Game, "trait" | "gauges">) => game.trait === "家族靠山"
   ? FAMILY_BACKER_ANNUAL_SUPPORT
   : Math.min(330000, Math.max(210000, Math.round((210000 + game.gauges.family * 1500) / 1000) * 1000));
@@ -1217,6 +1218,14 @@ const achievementsFor = (game: Game): AchievementResult[] => {
   const stats = game.achievementStats ?? blankAchievementStats();
   const net = netWorth(game);
   const completedRun = game.age >= FINAL_AGE && game.gauges.health > 0 && net > FINANCIAL_FAILURE_NET_WORTH;
+  if (game.specialTrait === "你爸是董座") return [{
+    id: "chairmanChild",
+    title: "拎北是天公仔",
+    tier: "傳說",
+    description: "有些人的投資起跑線，就在別人的終點線前面。",
+    progress: `家族飯桌情報 · 最終淨資產 ${formatMoney(net)}`,
+    unlocked: game.phase === "ending" || game.gauges.health <= 0,
+  }];
   const careerProgress = `${stats.yearsStarted} 年中完成 ${stats.yearsStarted} 次生路選擇`;
   const retirementProgress = game.age31InvestableNet ?? investableNetWorth(game);
   const retirementDistance = Math.max(0, EARLY_RETIREMENT_TARGET - retirementProgress);
@@ -1510,6 +1519,77 @@ function createMarketIntel(game: Game, event: GameEvent, action: IntelAction, ta
   };
 }
 
+type ChairmanTip = {
+  target: EventTarget;
+  predictedDirection: SurpriseDirection;
+  truthful: boolean;
+  durationQuarters: 1 | 2;
+  signal: MarketSignal;
+  record: IntelRecord;
+};
+
+const chairmanTipSeasonsFor = (game: Pick<Game, "seedCode" | "year">): readonly [number, number] => {
+  const first = signalHash(`${game.seedCode}:chairman-tip:${game.year}:first-season`) % seasons.length;
+  let second = signalHash(`${game.seedCode}:chairman-tip:${game.year}:second-season`) % (seasons.length - 1);
+  if (second >= first) second += 1;
+  return first < second ? [first, second] : [second, first];
+};
+
+const isChairmanTipPeriod = (game: Pick<Game, "seedCode" | "year" | "season" | "month" | "specialTrait">) =>
+  game.specialTrait === "你爸是董座"
+  && game.month === 0
+  && chairmanTipSeasonsFor(game).includes(game.season);
+
+function createChairmanTip(game: Game): ChairmanTip {
+  const key = `${game.seedCode}:chairman-tip:${game.year}:${game.season}`;
+  const target = { ...brokerCatalog[signalHash(`${key}:target`) % brokerCatalog.length], role: "primary" as const };
+  const predictedDirection: SurpriseDirection = signalHash(`${key}:prediction`) % 2 === 0 ? "bullish" : "bearish";
+  const truthful = signalHash(`${key}:truth`) % 100 < 88;
+  const direction = truthful
+    ? predictedDirection
+    : predictedDirection === "bullish" ? "bearish" : "bullish";
+  const durationQuarters = (signalHash(`${key}:duration`) % 2 + 1) as 1 | 2;
+  const totalMonths = durationQuarters * 3;
+  const id = `chairman-table-${game.year}-${game.season}`;
+  const groupId = `${id}-family`;
+  const directionLabel = predictedDirection === "bullish" ? "偏多 ↗" : "偏空 ↘";
+  return {
+    target,
+    predictedDirection,
+    truthful,
+    durationQuarters,
+    signal: {
+      id,
+      groupId,
+      eventId: id,
+      topic: "董事餐桌耳語",
+      role: "primary",
+      targetCategory: target.category,
+      targetName: target.name,
+      direction,
+      strength: .19,
+      remainingMonths: totalMonths,
+      totalMonths,
+    },
+    record: {
+      id,
+      groupId,
+      period: `${game.age} 歲 · ${periodLabel(game)}第 ${game.month + 1} 次事件`,
+      topic: "董事餐桌耳語",
+      role: "primary",
+      targetCategory: target.category,
+      targetName: target.name,
+      action: "observe",
+      actionLabel: "家族飯桌",
+      source: "家族飯桌",
+      clue: `家族消息直接指向「${target.name}」${directionLabel}；消息可靠度 88%，仍有 12% 機率反轉。`,
+      durationLabel: `預估影響 ${durationQuarters} 季`,
+      readDirection: predictedDirection,
+      confidenceLabel: "消息可靠度 88%",
+    },
+  };
+}
+
 function createHiddenMarketSignals(game: Game, event: GameEvent) {
   return eventTargetsForEvent(event).map((target, index) => {
     const { signal } = createMarketIntel(game, event, "observe", target, index);
@@ -1623,7 +1703,7 @@ const surpriseAngles = [
 const names = ["嘎尾", "喆喆", "成龍", "祥德", "銀龍", "千安", "屁渴脫", "骨癌"];
 const traits = [
   ["數字敏感", "投資知識較高，穩健選項成功率提升", { knowledge: 8 }],
-  ["家族靠山", "家庭關係 +10；起始現金額外 +20 萬元；家裡資助通過時，每年獲得 50 萬元", { family: 10 }],
+  ["家族靠山", "家庭關係 +10；起始現金額外 +50 萬元；家裡資助通過時，每年獲得 100 萬元", { family: 10 }],
   ["信用小白", "信用較低，但沒有任何歷史包袱", { credit: -8 }],
   ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -10 }],
   ["體弱多病", "初始健康只有 56～64，市場以外也有風險", { healthRange: [56, 64] }],
@@ -1632,6 +1712,8 @@ const traits = [
 const PAPER_HANDS_EFFECT = "不影響初始能力，但自主減倉時只能全部清倉";
 const WORKAHOLIC_EFFECT = "投資KOL與麥當當年度收入 +8%，職業事件收入 +15%；有工作時健康額外 −1、壓力 +2，KOL 年收入上限提高至 180 萬元";
 const BOOKKEEPER_EFFECT = "固定生活支出 −8%；持有負債時年末壓力 +2，全年未新增借款時年末信用 +1";
+const CHAIRMAN_CHILD_EFFECT = "家族靠山的稀有升級；每年兩季會從家族飯桌取得一則主要標的情報";
+const CHAIRMAN_CHILD_UPGRADE_PERCENT = 5;
 const specialTraitSlots: readonly (SpecialTrait | null)[] = ["紙手體質", "工作狂", "記帳強迫症", null, null, null];
 const specialTraitEffect = (trait: SpecialTrait | null) => trait === "紙手體質"
   ? PAPER_HANDS_EFFECT
@@ -1639,6 +1721,8 @@ const specialTraitEffect = (trait: SpecialTrait | null) => trait === "紙手體�
     ? WORKAHOLIC_EFFECT
     : trait === "記帳強迫症"
       ? BOOKKEEPER_EFFECT
+      : trait === "你爸是董座"
+        ? CHAIRMAN_CHILD_EFFECT
       : null;
 
 const initialGaugeRanges: Record<GaugeKey, readonly [number, number]> = {
@@ -1667,7 +1751,11 @@ function makeGame(characterName = "", requestedSeed = ""): Game {
   const seedCode = normalizedSeedCode(requestedSeed);
   const seed = signalHash(`chive-life:${seedCode}`);
   const trait = traits[signalHash(`${seedCode}:trait`) % traits.length];
-  const specialTrait = specialTraitSlots[signalHash(`${seedCode}:special:paper-hands`) % specialTraitSlots.length];
+  const isChairmanChild = trait[0] === "家族靠山"
+    && signalHash(`${seedCode}:special:chairman-child`) % 100 < CHAIRMAN_CHILD_UPGRADE_PERCENT;
+  const specialTrait = isChairmanChild
+    ? "你爸是董座"
+    : specialTraitSlots[signalHash(`${seedCode}:special:paper-hands`) % specialTraitSlots.length];
   const chosenName = characterName.trim() || names[signalHash(`${seedCode}:name`) % names.length];
   const healthRange = "healthRange" in trait[2] ? trait[2].healthRange : initialGaugeRanges.health;
   const familyRange = "familyRange" in trait[2] ? trait[2].familyRange : initialGaugeRanges.family;
@@ -1875,6 +1963,7 @@ function applyMonthlyMarketMove(assets: Position[], marketQuotes: Record<string,
 
 function titleForEnding(game: Game) {
   const net = netWorth(game);
+  if (game.specialTrait === "你爸是董座") return ["拎北是天公仔", "因為出身能爽爽賺又能騙吃騙喝是不是很爽 哈哈!!!"];
   if (game.gauges.health <= 0) return ["健康破產", "市場還沒收盤，身體先替你強制平倉。人生不等下一季，也不接受展期。"];
   if (net <= FINANCIAL_FAILURE_NET_WORTH) return ["財務斷頭", "現金流與信用同時失守，市場替你按下了人生的強制停損。"];
   if (game.earlyRetirementQualified) return ["提前退休", "31 歲，可投資淨資產突破三千萬元。你終於可以把鬧鐘和看盤軟體一起關掉。"];
@@ -2099,12 +2188,15 @@ export default function Home() {
   );
   const currentEventSelection = useMemo(() => game ? selectAffordableCurrentEvent(game, eventDeck) : null, [game, eventDeck]);
   const currentEvent = currentEventSelection?.event ?? null;
+  const currentChairmanTip = game && isChairmanTipPeriod(game) ? createChairmanTip(game) : null;
   const currentQuarter = game ? absoluteQuarterIndex(game) : 0;
   const marketAccessLocked = Boolean(game && currentQuarter < game.tradeLockUntilQuarter);
   const currentNewsHidden = Boolean(game && (
-    marketAccessLocked
-    || game.hiddenNewsRemaining > 0
-    || (game.workPromoted && game.occupation === "麥當當值班主管" && game.month === 1)
+    !currentChairmanTip && (
+      marketAccessLocked
+      || game.hiddenNewsRemaining > 0
+      || (game.workPromoted && game.occupation === "麥當當值班主管" && game.month === 1)
+    )
   ));
   const careerPeriod = game ? `${game.year}:${game.season}` : "";
   const careerCheckPending = Boolean(game && game.phase === "season" && game.month === 0 && game.lastIncomeChoiceYear === game.year && game.lastCareerEventPeriod !== careerPeriod);
@@ -2136,21 +2228,21 @@ export default function Home() {
   useEffect(() => {
     if (!game || !currentEvent || game.phase !== "season" || game.result || game.lastIncomeChoiceYear !== game.year
       || careerCheckPending || currentNewsHidden || quarterSurprise || quarterReport || incomeNotice || careerEvent || careerNotice || familyEvent || illnessEvent || debtAction || brokerOpen) return;
-    const presentationKey = `${game.year}:${game.season}:${game.month}:${currentEvent.id}`;
+    const presentationKey = `${game.year}:${game.season}:${game.month}:${currentChairmanTip?.signal.eventId ?? currentEvent.id}`;
     if (lastPresentedEvent.current === presentationKey) return;
     lastPresentedEvent.current = presentationKey;
-    const targets = eventTargetsForEvent(currentEvent);
+    const targets = currentChairmanTip ? [currentChairmanTip.target] : eventTargetsForEvent(currentEvent);
     trackAnonymous("event_presented", {
-      eventId: currentEvent.id,
-      eventKind: currentEvent.kind,
+      eventId: currentChairmanTip?.signal.eventId ?? currentEvent.id,
+      eventKind: currentChairmanTip ? "family_tip" : currentEvent.kind,
       category: targets[0]?.category ?? null,
       target: targets[0]?.name ?? null,
       linkedTarget: targets[1]?.name ?? null,
-      marketScope: currentEvent.marketScope ?? null,
+      marketScope: currentChairmanTip ? null : currentEvent.marketScope ?? null,
       affectedTargets: targets.map((target) => `${target.category}:${target.name}`),
     }, game);
-  }, [game, currentEvent, careerCheckPending, currentNewsHidden, quarterSurprise, quarterReport, incomeNotice, careerEvent, careerNotice, familyEvent, illnessEvent, debtAction, brokerOpen, trackAnonymous]);
-  const currentEventTargets = currentEvent ? eventTargetsForEvent(currentEvent) : [];
+  }, [game, currentEvent, currentChairmanTip, careerCheckPending, currentNewsHidden, quarterSurprise, quarterReport, incomeNotice, careerEvent, careerNotice, familyEvent, illnessEvent, debtAction, brokerOpen, trackAnonymous]);
+  const currentEventTargets = currentChairmanTip ? [currentChairmanTip.target] : currentEvent ? eventTargetsForEvent(currentEvent) : [];
   const currentEventTarget = currentEventTargets[0];
   const currentAdvisorSignal = currentEvent ? advisorSignalForEvent(currentEvent) : null;
   const currentChoices = currentEvent ? lifeChoicesForEvent(currentEvent) : [];
@@ -2474,6 +2566,43 @@ export default function Home() {
     resolveChoice(choice);
     if (currentEventTarget && brokerCategoryOrder.includes(currentEventTarget.category)) setBrokerCategory(currentEventTarget.category);
     setBrokerNotice(null);
+    setBrokerOpen(true);
+  }
+
+  function acceptChairmanTip() {
+    if (!game || !currentChairmanTip) return;
+    const next: Game = {
+      ...game,
+      activeSignals: [...(game.activeSignals ?? []), currentChairmanTip.signal],
+      intelRecords: [currentChairmanTip.record, ...(game.intelRecords ?? [])].slice(0, 144),
+      history: [...game.history, `${game.age}歲${periodLabel(game)}：從家族飯桌取得「${currentChairmanTip.target.name}」情報`].slice(-8),
+    };
+    trackAnonymous("event_choice", {
+      eventId: currentChairmanTip.signal.eventId,
+      eventKind: "family_tip",
+      choice: "family_tip",
+      action: "receive",
+      intelAction: "family_table",
+      outcome: "received",
+      category: currentChairmanTip.target.category,
+      target: currentChairmanTip.target.name,
+      marketScope: null,
+      affectedTargets: [`${currentChairmanTip.target.category}:${currentChairmanTip.target.name}`],
+      netWorth: Math.round(netWorth(next)),
+      health: next.gauges.health,
+      stress: next.gauges.stress,
+      knowledge: next.gauges.knowledge,
+    }, next);
+    setBrokerCategory(currentChairmanTip.target.category);
+    setBrokerNotice(null);
+    if (marketAccessLocked) {
+      setBrokerNewsHidden(false);
+      setBrokerOpen(false);
+      advanceMarketMonth(next, false);
+      return;
+    }
+    setGame(next);
+    setBrokerNewsHidden(false);
     setBrokerOpen(true);
   }
 
@@ -3842,7 +3971,7 @@ export default function Home() {
         const role = intelRoleOf(record);
         return <section className={`intel-target-item intel-target-${role}`} key={record.id}>
           <div><em>{signalRoleLabel(role)}</em><b>{record.targetCategory} · 「{record.targetName}」</b><AssetQuoteLabel asset={{ category: record.targetCategory, name: record.targetName }} game={game} /><i>{signal ? `剩 ${signal.remainingMonths} 月` : "已到期"}</i></div>
-          <p>{record.clue}</p><small>{record.actionLabel} · {record.durationLabel}{record.opportunityLabel ? ` · ${record.opportunityLabel}` : ""}</small>
+          <p>{record.clue}</p><small>{record.source ?? record.actionLabel} · {record.durationLabel}{record.opportunityLabel ? ` · ${record.opportunityLabel}` : ""}</small>
         </section>;
       })}{marketRecords.length > 0 && <section className="intel-target-item intel-target-market" key={`${first.groupId || first.id}-market`}>
         <div><em>市場連動</em><b>{marketCategories} · {marketRecords.length} 檔</b><i>{groupIsActive ? "部分或全部生效中" : "已到期"}</i></div>
@@ -3976,6 +4105,15 @@ export default function Home() {
             </div>
           </article> : careerCheckPending ? <article className="event-card career-loading-card">
             <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)} · 行程確認中</p><h1>先看一眼<br/>這季的工作表。</h1><p className="lede">職業事件與市場新聞正在排入本季行程。</p>
+          </article> : currentChairmanTip ? <article className="event-card chairman-tip-card">
+            <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 家族飯桌</p>
+            <div className="event-impact-tag chairman-tip-target"><span>主要標的</span><b>{currentChairmanTip.target.category} · 「{currentChairmanTip.target.name}」</b><AssetQuoteLabel asset={currentChairmanTip.target} game={game} /></div>
+            <div className={`chairman-direction direction-${currentChairmanTip.predictedDirection}`}><span>董事餐桌耳語</span><b>{currentChairmanTip.predictedDirection === "bullish" ? "預估偏多 ↗" : "預估偏空 ↘"}</b><small>可靠度 88% · 仍有 12% 機率反轉</small></div>
+            <h1>餐桌上有人，<br/>不小心說太多。</h1>
+            <p className="lede">你免費取得一則不需要知識門檻的家族消息。它會取代本季其中一則市場新聞，但不會替你自動下單。</p>
+            <div className="quote">「方向已經有人先講了；敢不敢買，還是你自己的事。」<span>— 家族飯桌</span></div>
+            <p className="question">預估影響 {currentChairmanTip.durationQuarters} 季；情報會保存在情報庫，仍須自行進入券商 APP 買賣。</p>
+            <button className="primary" onClick={acceptChairmanTip}>{marketAccessLocked ? "收下情報，讓行情在背景結算" : "收下情報，進入券商 APP"} <span>→</span></button>
           </article> : currentNewsHidden && currentEvent ? <article className={`event-card hidden-news-card ${marketAccessLocked ? "access-locked" : "work-hidden"}`}>
             <p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · {marketAccessLocked ? "市場權限鎖定" : "工作占用時間"}</p>
             <div className="hidden-news-symbol">{marketAccessLocked ? "⊘" : "…"}</div>
@@ -4008,7 +4146,7 @@ export default function Home() {
       {brokerOpen && game.gauges.health > 0 && <div className="broker-overlay" role="presentation">
         <section className="broker-app" role="dialog" aria-modal="true" aria-labelledby="broker-title">
           <header className="broker-header">
-            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>{brokerNewsHidden ? "你因工作錯過本次新聞；標的與方向不公開，仍可依既有資訊交易。" : <>{currentEvent?.marketScope ? `本次消息擴散至${marketScopeLabel(currentEvent.marketScope)}；` : "主要與連動情報分開判讀，"}買賣由你決定。</>}</span></div>
+            <div><p className="eyebrow green">{game.age} 歲 · {periodLabel(game)}第 {game.month + 1} 次事件 · 自主交易時間</p><h2 id="broker-title">韭菜證券</h2><span>{brokerNewsHidden ? "你因工作錯過本次新聞；標的與方向不公開，仍可依既有資訊交易。" : currentChairmanTip ? "家族飯桌情報已入庫；消息不會自動替你買進，買賣仍由你決定。" : <>{currentEvent?.marketScope ? `本次消息擴散至${marketScopeLabel(currentEvent.marketScope)}；` : "主要與連動情報分開判讀，"}買賣由你決定。</>}</span></div>
             <button className="broker-finish" onClick={closeBrokerMonth}>{game.month < EVENTS_PER_SEASON - 1 ? `結束交易，進入本季第 ${game.month + 2} 次事件` : "結束交易並結算本季"} <span>→</span></button>
           </header>
           <div className="broker-metrics">
