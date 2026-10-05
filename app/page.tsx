@@ -270,7 +270,7 @@ const nextPeriodButtonLabel = (game: Pick<Game, "season" | "month">) => game.sea
 const STARTING_AGE = 22;
 const FINAL_AGE = 31;
 const LIFE_YEAR_COUNT = FINAL_AGE - STARTING_AGE;
-const GAME_VERSION = "v1.1.6";
+const GAME_VERSION = "v1.1.7";
 const forewordTitleLines = ["22 歲那年，", "你帶著 30 萬元走進市場。"];
 const forewordTitle = forewordTitleLines.join("\n");
 const forewordParagraphs = [
@@ -354,7 +354,7 @@ const brokerCatalog: BrokerAsset[] = Array.from(new Map(
 });
 const brokerBaseQuotes: Record<string, number> = {
   "台股:老AI解套聯盟": 56,
-  "ETF:靈靈舞靈": 195,
+  "ETF:00午靈": 195,
   "台股:低鬼衛星": 142,
   "美股:紅帽美國優先組合": 3260,
   "加密貨幣:橘貓幣": 2180000,
@@ -1712,6 +1712,7 @@ const traits = [
   ["天生樂觀", "壓力起點較低，梭哈時也笑得出來", { stress: -10 }],
   ["體弱多病", "初始健康只有 56～64，市場以外也有風險", { healthRange: [56, 64] }],
   ["家破人亡", "初始家庭關係只有 30～46，家裡未必接得住你", { familyRange: [30, 46] }],
+  ["壓力山大", "初始壓力 +20，生活還沒開始，壓力已經先報到", { stress: 20 }],
 ] as const;
 const PAPER_HANDS_EFFECT = "不影響初始能力，但自主減倉時只能全部清倉";
 const WORKAHOLIC_EFFECT = "投資KOL與麥當當年度收入 +8%，職業事件收入 +15%；有工作時健康額外 −1、壓力 +2，KOL 年收入上限提高至 180 萬元";
@@ -2971,7 +2972,7 @@ export default function Home() {
     const existingCooldown = quarterClosed.illnessCooldown ?? 0;
     const gauges = { ...quarterClosed.gauges };
     if (gauges.stress >= 90 && random() < .5) gauges.health = clamp(gauges.health - 2);
-    else if (gauges.stress >= 75 && random() < .35) gauges.health = clamp(gauges.health - 1);
+    else if (gauges.stress >= 75 && gauges.stress < 90 && random() < .333) gauges.health = clamp(gauges.health - 1);
     const previousStats = quarterClosed.achievementStats ?? blankAchievementStats();
     const currentHighStressQuarters = gauges.stress >= 90 ? previousStats.currentHighStressQuarters + 1 : 0;
     const achievementStats = {
@@ -3325,7 +3326,7 @@ export default function Home() {
       const chance = familySupportChance(game);
       const approved = random() < chance;
       const support = familySupportAmount(game);
-      const fallbackIncome = 180000;
+      const fallbackIncome = 240000;
       const strain = Math.min(10, 4 + streak * 2);
       next.income = approved ? support : fallbackIncome;
       next.workBaseIncomeThisYear = 0;
@@ -3334,14 +3335,14 @@ export default function Home() {
       next.familySupportStreak = streak + 1;
       next.workConsecutiveYears = 0;
       if (!game.workTenureProtected) next.parttimeStreak = 0;
-      next.gauges.family = clamp(next.gauges.family - (approved ? strain : 5));
-      next.gauges.health = clamp(next.gauges.health - (approved ? 0 : 2));
+      next.gauges.family = clamp(next.gauges.family - (approved ? strain : 6));
+      next.gauges.health = clamp(next.gauges.health - (approved ? 0 : 3));
       next.gauges.stress = clamp(next.gauges.stress + (approved ? 2 : 8));
       notice = {
         tone: approved ? "good" : "bad",
         title: approved ? "家人答應支援，餐桌上也多了一張隱形對帳單。" : "家人沒有點頭，你只好先接臨時零工。",
-        body: approved ? `本年度獲得 ${formatMoney(support)} 資助，不計入負債並在年度結算時入帳。連續伸手仍會降低關係與下次核准率。` : `本次資助未通過；你臨時工作補進 ${formatMoney(fallbackIncome)} 年收入，代價是家庭關係 −5、健康 −2、壓力 +8。生活費仍照常發生。`,
-        deltas: [`年末待入帳 ${approved ? formatMoney(support) : formatMoney(fallbackIncome)}`, `家庭關係 −${approved ? strain : 5}`, `壓力 +${approved ? 2 : 8}`, ...(!approved ? ["健康 −2"] : []), `連續申請 ${streak + 1} 年`],
+        body: approved ? `本年度獲得 ${formatMoney(support)} 資助，不計入負債並在年度結算時入帳。連續伸手仍會降低關係與下次核准率。` : `本次資助未通過；你臨時工作補進 ${formatMoney(fallbackIncome)} 年收入，代價是家庭關係 −6、健康 −3、壓力 +8。生活費仍照常發生。`,
+        deltas: [`年末待入帳 ${approved ? formatMoney(support) : formatMoney(fallbackIncome)}`, `家庭關係 −${approved ? strain : 6}`, `壓力 +${approved ? 2 : 8}`, ...(!approved ? ["健康 −3"] : []), `連續申請 ${streak + 1} 年`],
       };
     } else {
       next.achievementStats.parttimeYears += 1;
@@ -4308,7 +4309,7 @@ export default function Home() {
           </section>
           <div className="income-path-list">
             <button onClick={() => chooseIncomePath("kol")}><span>A</span><b>投資KOL</b><small>{game.year === 1 ? `職業更新為投資KOL · 冷啟動期 · 收入 0～${game.specialTrait === "工作狂" ? "10.8" : "10"} 萬 · 小爆紅機率約 12%${game.specialTrait === "工作狂" ? " · 健康額外 −1、壓力 +2" : ""}` : `職業更新為投資KOL · 收入上限 ${formatMoney(kolAnnualIncomeCap(game.specialTrait))} · 目前好結果機率約 ${Math.round(kolSuccessChance(game) * 100)}% · 連動知識、去年判讀戰績、聲量與壓力${game.specialTrait === "工作狂" ? " · 健康額外 −1、壓力 +2" : ""}`}</small></button>
-            <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接18萬元臨時零工、家庭關係 −5</small></button>
+            <button onClick={() => chooseIncomePath("family")}><span>B</span><b>無業</b><small>職業更新為無業 · 接受家裡資助；目前核准率約 {Math.round(familySupportChance(game) * 100)}% · 若遭拒會改接24萬元臨時零工、家庭關係 −6、健康 −3、壓力 +8</small></button>
             <button onClick={() => chooseIncomePath("parttime")}><span>C</span><b>{game.workPromoted ? "麥當當值班主管" : "麥當當員工"}</b><small>職業更新為{game.workPromoted ? "麥當當值班主管" : "麥當當員工"} · {game.workTenureProtected ? `永久年資已保留 · 目前 ${game.parttimeStreak} 年` : `目前工作年資 ${game.parttimeStreak} 年 · 滿3年永久保留`} · 已連續工作 ${game.workConsecutiveYears ?? 0} 年 · 本次年薪 {formatMoney(annualCareerIncome(rankedWorkIncome(game.parttimeStreak + 1, game.workPromoted), game.specialTrait))} · 本次健康 −{workHealthCost((game.workConsecutiveYears ?? 0) + 1) + (game.workPromoted ? 1 : 0) + (game.specialTrait === "工作狂" ? 1 : 0)}、壓力 +{8 + (game.workPromoted ? 3 : 0) + (game.specialTrait === "工作狂" ? 2 : 0)}{game.workPromoted ? " · 每季固定少看1則新聞" : ""}</small></button>
           </div>
         </section>

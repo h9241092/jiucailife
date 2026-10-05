@@ -309,10 +309,10 @@ const lenses = [
 
 const basketByKind: Record<EventKind, { category: string; name: string }> = {
   tech: { category: "ETF", name: "00九八2欸" },
-  market: { category: "ETF", name: "靈靈舞靈" },
+  market: { category: "ETF", name: "00午靈" },
   crypto: { category: "加密貨幣", name: "橘貓幣" },
   career: { category: "ETF", name: "韭零韭大盤ETF" },
-  macro: { category: "ETF", name: "靈靈舞靈" },
+  macro: { category: "ETF", name: "00午靈" },
   meme: { category: "ETF", name: "韭零韭大盤ETF" },
 };
 
@@ -331,15 +331,15 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "AI出口國家隊": { category: "台股", name: "科技選邊供應鏈" },
   "花東韌性重建": { category: "台股", name: "節能設備受惠鏈" },
   // ETF：41 → 31
-  "高處不勝寒ETF": { category: "ETF", name: "靈靈舞靈" },
-  "萬二回歸紀念ETF": { category: "ETF", name: "靈靈舞靈" },
-  "萬八高檔大盤ETF": { category: "ETF", name: "靈靈舞靈" },
-  "兩萬點紀念ETF": { category: "ETF", name: "靈靈舞靈" },
-  "國家隊護盤大盤ETF": { category: "ETF", name: "靈靈舞靈" },
+  "高處不勝寒ETF": { category: "ETF", name: "00午靈" },
+  "萬二回歸紀念ETF": { category: "ETF", name: "00午靈" },
+  "萬八高檔大盤ETF": { category: "ETF", name: "00午靈" },
+  "兩萬點紀念ETF": { category: "ETF", name: "00午靈" },
+  "國家隊護盤大盤ETF": { category: "ETF", name: "00午靈" },
   "升息抽水防守ETF": { category: "ETF", name: "長天期公債ETF" },
   "年底升息過節ETF": { category: "ETF", name: "長天期公債ETF" },
   "縮表退潮防守ETF": { category: "ETF", name: "長天期公債ETF" },
-  "全球熔斷避震ETF": { category: "ETF", name: "靈靈舞靈" },
+  "全球熔斷避震ETF": { category: "ETF", name: "00午靈" },
   "關稅談判避震ETF": { category: "ETF", name: "00九八2欸" },
   // 美股：30 → 23
   "深度求索AI": { category: "美股", name: "皮衣算力" },
@@ -365,11 +365,11 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "供應鏈搬家ETF": { category: "ETF", name: "台美供應鏈再平衡" },
   "國庫額度協商ETF": { category: "ETF", name: "高品質公司債ETF" },
   "封城斷鏈替代ETF": { category: "ETF", name: "台美供應鏈再平衡" },
-  "小資一股入魂": { category: "ETF", name: "靈靈舞靈" },
+  "小資一股入魂": { category: "ETF", name: "00午靈" },
   "歐洲退群避震ETF": { category: "ETF", name: "長天期公債ETF" },
   "美債降評避震ETF": { category: "ETF", name: "高品質公司債ETF" },
   "高品質公司債ETF": { category: "ETF", name: "債市壓力測試ETF" },
-  "限空令護盤ETF": { category: "ETF", name: "靈靈舞靈" },
+  "限空令護盤ETF": { category: "ETF", name: "00午靈" },
   "隔夜水管流動性ETF": { category: "ETF", name: "長天期公債ETF" },
   // 美股：22 → 14
   "合法上路叫車網": { category: "美股", name: "水龍頭成長股" },
@@ -385,7 +385,7 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   // 加密貨幣與期貨保留各自最有辨識度的核心標的。
   "無聊韭猴NFT": { category: "加密貨幣", name: "橘貓幣" },
   "真的穩定幣": { category: "加密貨幣", name: "橘貓幣" },
-  "八月速度與激情": { category: "ETF", name: "靈靈舞靈" },
+  "八月速度與激情": { category: "ETF", name: "00午靈" },
   "大排長榮航運期貨": { category: "台股", name: "貨櫃三雄聯盟" },
 
   // 最終收斂：300 題只使用少量核心標的，降低第一次遊玩的學習成本。
@@ -397,7 +397,7 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "被動元件漲價王": { category: "台股", name: "老AI解套聯盟" },
   "碳費減量設備鏈": { category: "台股", name: "節能設備受惠鏈" },
   "精算不會錯產險": { category: "台股", name: "低鬼衛星" },
-  "鮭魚回流供應鏈": { category: "ETF", name: "靈靈舞靈" },
+  "鮭魚回流供應鏈": { category: "ETF", name: "00午靈" },
   "老師拍桌明牌股": { category: "台股", name: "低鬼衛星" },
   "老師會員群概念股": { category: "台股", name: "老AI解套聯盟" },
   "老師航海會員股": { category: "台股", name: "貨櫃三雄聯盟" },
@@ -411,11 +411,11 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
   "亞洲資金轉向ETF": { category: "ETF", name: "長天期公債ETF" },
   "政策煙火中概ETF": { category: "ETF", name: "00九八2欸" },
   "降息倒數長債ETF": { category: "ETF", name: "長天期公債ETF" },
-  "韭韭價值高息": { category: "ETF", name: "靈靈舞靈" },
+  "韭韭價值高息": { category: "ETF", name: "00午靈" },
   "海峽風險雷達ETF": { category: "ETF", name: "長天期公債ETF" },
   "殖利率倒掛長債ETF": { category: "ETF", name: "長天期公債ETF" },
   "債市壓力測試ETF": { category: "ETF", name: "長天期公債ETF" },
-  "萬物皆漲原物料": { category: "ETF", name: "靈靈舞靈" },
+  "萬物皆漲原物料": { category: "ETF", name: "00午靈" },
   "銀髮長照生活ETF": { category: "ETF", name: "韭零韭大盤ETF" },
   "隱私餅乾合規ETF": { category: "ETF", name: "科技供應鏈ETF" },
   "負油價紀念桶": { category: "ETF", name: "長天期公債ETF" },
@@ -429,15 +429,15 @@ const playableAssetAliases: Record<string, { category: string; name: string }> =
 
   // 上線版可交易標的只保留台股、ETF、美股與加密貨幣。
   "節能設備受惠鏈": { category: "ETF", name: "科技供應鏈ETF" },
-  "國家隊防疫供應鏈": { category: "ETF", name: "靈靈舞靈" },
+  "國家隊防疫供應鏈": { category: "ETF", name: "00午靈" },
   "液冷伺服器聯盟": { category: "台股", name: "老AI解套聯盟" },
-  "韭零韭大盤ETF": { category: "ETF", name: "靈靈舞靈" },
+  "韭零韭大盤ETF": { category: "ETF", name: "00午靈" },
   "遊戲不停迷因股": { category: "美股", name: "水龍頭成長股" },
   "高速疫苗實驗室": { category: "美股", name: "水龍頭成長股" },
   "特會漲電動車": { category: "美股", name: "水龍頭成長股" },
   "自動排班科技": { category: "台股", name: "老AI解套聯盟" },
   "水果信仰": { category: "美股", name: "水龍頭成長股" },
-  "東北亞避險傘ETF": { category: "ETF", name: "靈靈舞靈" },
+  "東北亞避險傘ETF": { category: "ETF", name: "00午靈" },
   "掃碼回饋金控": { category: "美股", name: "大摩" },
 };
 
@@ -613,10 +613,10 @@ const linkedAssetByPrimaryName: Record<string, { category: string; name: string 
   "橘貓幣": { category: "加密貨幣", name: "川幣" },
   "護國神積": { category: "美股", name: "皮衣算力" },
   "00九八2欸": { category: "美股", name: "紅帽美國優先組合" },
-  "靈靈舞靈": { category: "台股", name: "護國神積" },
+  "00午靈": { category: "台股", name: "護國神積" },
   "水龍頭成長股": { category: "美股", name: "皮衣算力" },
   "貨櫃三雄聯盟": { category: "ETF", name: "00九八2欸" },
-  "大摩": { category: "ETF", name: "靈靈舞靈" },
+  "大摩": { category: "ETF", name: "00午靈" },
   "皮衣算力": { category: "台股", name: "老AI解套聯盟" },
   "川幣": { category: "加密貨幣", name: "橘貓幣" },
 };
